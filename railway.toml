@@ -1,7 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "agent/Dockerfile"
-buildContext = "agent"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
