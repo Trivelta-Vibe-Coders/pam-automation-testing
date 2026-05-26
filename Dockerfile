@@ -25,4 +25,5 @@ COPY public/ ./public/
 # Data directory for flow-link persistence (mount a Railway volume here)
 RUN mkdir -p /app/data
 
+EXPOSE 8080
 CMD ["node", "dist/index.js"]
