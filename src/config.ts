@@ -9,7 +9,7 @@ function optional_env(name: string, fallback = ''): string {
 }
 
 export const config = {
-  port: parseInt(optional_env('PORT', '3000'), 10),
+  port: parseInt(optional_env('PORT', '8080'), 10),
 
   // Autosana
   autosanaApiKey:  require_env('AUTOSANA_API_KEY'),
