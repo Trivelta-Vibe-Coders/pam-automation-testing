@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PAM QA Agent</title>
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --bg2:       #1a1d27;
+      --border:    #2d3148;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --green:     #22c55e;
+      --yellow:    #eab308;
+      --red:       #ef4444;
+      --blue:      #3b82f6;
+      --indigo:    #6366f1;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .logo span { color: var(--indigo); }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      animation: none;
+      flex-shrink: 0;
+    }
+    .status-dot.connected {
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .status-label { color: var(--muted); font-size: 12px; }
+
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    /* ── Stats bar ── */
+    .stats {
+      display: flex;
+      gap: 24px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .c-green  { color: var(--green); }
+    .c-yellow { color: var(--yellow); }
+    .c-red    { color: var(--red); }
+    .c-blue   { color: var(--blue); }
+
+    /* ── Main layout ── */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      height: calc(100vh - 120px);
+    }
+
+    /* ── Event log ── */
+    .log-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid var(--border);
+    }
+
+    .panel-header {
+      padding: 12px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-header .count {
+      background: var(--border);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-size: 10px;
+    }
+
+    .auto-scroll-toggle {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .auto-scroll-toggle input { cursor: pointer; }
+
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .event {
+      display: grid;
+      grid-template-columns: 160px 60px 1fr;
+      gap: 0 8px;
+      padding: 5px 16px;
+      border-bottom: 1px solid transparent;
+      transition: background 0.1s;
+      align-items: start;
+    }
+
+    .event:hover { background: var(--bg2); }
+
+    .event-time { color: var(--muted); white-space: nowrap; }
+
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .badge-info    { background: #1e3a5f; color: var(--blue); }
+    .badge-success { background: #14532d; color: var(--green); }
+    .badge-warning { background: #422006; color: var(--yellow); }
+    .badge-error   { background: #450a0a; color: var(--red); }
+
+    .event-msg { word-break: break-word; }
+
+    .event-details {
+      grid-column: 3;
+      margin-top: 3px;
+      padding: 6px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+
+    .event.expanded .event-details { display: block; }
+    .event-msg { cursor: pointer; }
+    .has-details .event-msg::after {
+      content: ' ▸';
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .event.expanded .has-details .event-msg::after { content: ' ▾'; }
+
+    /* ── Side panel (links) ── */
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #links-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .link-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .link-jira {
+      font-weight: 700;
+      color: var(--indigo);
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+
+    .link-flow { color: var(--text); margin-bottom: 4px; word-break: break-word; }
+    .link-meta { color: var(--muted); font-size: 11px; }
+
+    .empty-state {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 32px 16px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">PAM <span>QA Agent</span></div>
+    <div class="status-dot" id="dot"></div>
+    <div class="status-label" id="conn-label">Connecting…</div>
+    <div class="header-right">
+      <span style="color:var(--muted);font-size:12px;" id="uptime"></span>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value c-blue"  id="cnt-total">0</div>
+      <div class="stat-label">Total Events</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value c-green"  id="cnt-success">0</div>
+      <div class="stat-label">Success</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value c-yellow" id="cnt-warning">0</div>
+      <div class="stat-label">Warnings</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value c-red"    id="cnt-error">0</div>
+      <div class="stat-label">Errors</div>
+    </div>
+  </div>
+
+  <main>
+    <div class="log-panel">
+      <div class="panel-header">
+        Activity Log
+        <span class="count" id="event-count">0</span>
+        <label class="auto-scroll-toggle">
+          <input type="checkbox" id="auto-scroll" checked />
+          Auto-scroll
+        </label>
+      </div>
+      <div id="log"></div>
+    </div>
+
+    <div class="side-panel">
+      <div class="panel-header">
+        Flow Links
+        <span class="count" id="links-count">0</span>
+      </div>
+      <div id="links-list">
+        <div class="empty-state">No flow links yet.<br/>Links appear when tickets are processed.</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const log         = document.getElementById('log');
+    const dot         = document.getElementById('dot');
+    const connLabel   = document.getElementById('conn-label');
+    const eventCount  = document.getElementById('event-count');
+    const linksCount  = document.getElementById('links-count');
+    const linksList   = document.getElementById('links-list');
+    const autoScroll  = document.getElementById('auto-scroll');
+    const cntTotal    = document.getElementById('cnt-total');
+    const cntSuccess  = document.getElementById('cnt-success');
+    const cntWarning  = document.getElementById('cnt-warning');
+    const cntError    = document.getElementById('cnt-error');
+
+    let totalCount = 0, successCount = 0, warningCount = 0, errorCount = 0;
+
+    // ── Formatting ──────────────────────────────────────────────────────────
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('en-US', { hour12: false }) + '.' +
+             String(d.getMilliseconds()).padStart(3, '0');
+    }
+
+    function fmtBadge(level) {
+      const map = { info: 'badge-info', success: 'badge-success', warning: 'badge-warning', error: 'badge-error' };
+      const cls = map[level] || 'badge-info';
+      const lbl = { info: 'INFO', success: 'OK', warning: 'WARN', error: 'ERR' }[level] || level;
+      return `<span class="badge ${cls}">${lbl}</span>`;
+    }
+
+    // ── Append event row ────────────────────────────────────────────────────
+    function appendEvent(ev) {
+      totalCount++;
+      if (ev.level === 'success') successCount++;
+      if (ev.level === 'warning') warningCount++;
+      if (ev.level === 'error')   errorCount++;
+
+      cntTotal.textContent   = totalCount;
+      cntSuccess.textContent = successCount;
+      cntWarning.textContent = warningCount;
+      cntError.textContent   = errorCount;
+      eventCount.textContent = totalCount;
+
+      const hasDetails = ev.details && Object.keys(ev.details).length > 0;
+
+      const row = document.createElement('div');
+      row.className = `event${hasDetails ? ' has-details' : ''}`;
+      row.innerHTML = `
+        <span class="event-time">${fmtTime(ev.timestamp)}</span>
+        ${fmtBadge(ev.level)}
+        <span class="event-msg">${escHtml(ev.message)}</span>
+        ${hasDetails ? `<pre class="event-details">${escHtml(JSON.stringify(ev.details, null, 2))}</pre>` : ''}
+      `;
+
+      if (hasDetails) {
+        row.querySelector('.event-msg').addEventListener('click', () => {
+          row.classList.toggle('expanded');
+        });
+      }
+
+      log.appendChild(row);
+
+      if (autoScroll.checked) {
+        row.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      }
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ── Load flow links ──────────────────────────────────────────────────────
+    async function loadLinks() {
+      try {
+        const links = await fetch('/api/links').then(r => r.json());
+        linksCount.textContent = links.length;
+        if (!links.length) return;
+        linksList.innerHTML = '';
+        for (const l of links) {
+          const card = document.createElement('div');
+          card.className = 'link-card';
+          card.innerHTML = `
+            <div class="link-jira">${escHtml(l.jiraKey)}</div>
+            <div class="link-flow">${escHtml(l.flowName)}</div>
+            <div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>
+          `;
+          linksList.appendChild(card);
+        }
+      } catch { /* ignore */ }
+    }
+
+    // ── SSE connection ───────────────────────────────────────────────────────
+    function connect() {
+      const es = new EventSource('/events');
+
+      es.onopen = () => {
+        dot.classList.add('connected');
+        connLabel.textContent = 'Live';
+        loadLinks();
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          appendEvent(ev);
+          // Refresh links panel on flow-related events
+          if (ev.message && (ev.message.includes('flow') || ev.message.includes('Flow'))) {
+            loadLinks();
+          }
+        } catch { /* ignore malformed */ }
+      };
+
+      es.onerror = () => {
+        dot.classList.remove('connected');
+        connLabel.textContent = 'Reconnecting…';
+        es.close();
+        setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+
+    // ── Uptime display ───────────────────────────────────────────────────────
+    const uptimeEl = document.getElementById('uptime');
+    async function refreshUptime() {
+      try {
+        const h = await fetch('/health').then(r => r.json());
+        const s = h.uptime;
+        const hh = Math.floor(s / 3600);
+        const mm = Math.floor((s % 3600) / 60);
+        const ss = s % 60;
+        uptimeEl.textContent = `Up ${hh}h ${mm}m ${ss}s`;
+      } catch { uptimeEl.textContent = ''; }
+    }
+    refreshUptime();
+    setInterval(refreshUptime, 10_000);
+  </script>
+</body>
+</html>
