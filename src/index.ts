@@ -18,6 +18,19 @@ import { webhookRouter } from './routes/webhook';
 import * as flowLinks from './services/flow-links';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
+
+// ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+  process.exit(1);
+});
+
+console.log(`[BOOT] PORT env = ${process.env['PORT']} | using port ${config.port}`);
+
 const app = express();
 
 // ── Body parsing (capture raw body for signature verification) ─────────────
@@ -118,8 +131,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(config.port, () => {
-  logger.info(`PAM QA Agent started on port ${config.port}`, {
+app.listen(config.port, '0.0.0.0', () => {
+  logger.info(`PAM QA Agent listening on 0.0.0.0:${config.port}`, {
     environment: process.env['NODE_ENV'] ?? 'development',
     jiraProject: config.jiraProject,
     threshold:   config.matchThreshold,
