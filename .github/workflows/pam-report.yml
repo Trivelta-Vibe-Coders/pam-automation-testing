@@ -1,0 +1,66 @@
+name: PAM QA Report Generator
+
+on:
+  repository_dispatch:
+    types: [pam-suite-completed]
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install reportlab requests
+
+      - name: Save flow payload to file
+        env:
+          PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: echo "$PAYLOAD" > /tmp/pam_payload.json
+
+      - name: Generate PAM Report
+        env:
+          PAYLOAD_FILE:         /tmp/pam_payload.json
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          CONFLUENCE_EMAIL:     ${{ secrets.CONFLUENCE_EMAIL }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          SLACK_WEBHOOK_URL:    ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scripts/pam_report.py
+
+      - name: Upload PDF report
+        uses: actions/upload-artifact@v4
+        with:
+          name: PAM-Report-${{ github.event.client_payload.suite_name }}-${{ github.event.client_payload.run_date }}
+          path: "*.pdf"
+          retention-days: 90
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SUITE_NAME: ${{ github.event.client_payload.suite_name }}
+          RUN_DATE: ${{ github.event.client_payload.run_date }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"attachments\": [{
+                \"color\": \"danger\",
+                \"title\": \"❌ PAM Report generation FAILED — $SUITE_NAME\",
+                \"fields\": [
+                  { \"title\": \"Suite\", \"value\": \"$SUITE_NAME\", \"short\": true },
+                  { \"title\": \"Date\",  \"value\": \"$RUN_DATE\",   \"short\": true }
+                ]
+              }]
+            }"

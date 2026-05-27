@@ -52,5 +52,5 @@ export const config = {
 
   // GitHub Actions dispatch (for post-run Slack reports)
   githubToken: optional_env('GITHUB_DISPATCH_TOKEN'),  // required for Slack results
-  githubRepo:  optional_env('GITHUB_REPO', 'Trivelta-Vibe-Coders/tcm-automation-testing'),
+  githubRepo:  optional_env('GITHUB_REPO', 'Trivelta-Vibe-Coders/pam-automation-testing'),
 } as const;
