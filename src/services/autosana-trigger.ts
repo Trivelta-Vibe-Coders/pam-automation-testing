@@ -32,18 +32,28 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
     throw new Error(`No Autosana app_id configured for environment "${opts.environment}"`);
   }
 
-  const suiteIds = opts.suiteIds ?? Object.values(config.suites);
+  // When specific flow_ids are provided, omit suite_ids entirely.
+  // Autosana automatically resolves each flow's suite auth instructions when
+  // triggered by flow_id — passing suite_ids alongside flow_ids causes the
+  // entire suite(s) to run rather than just the selected flows.
+  //
+  // When no flow_ids are given (Jira trigger or full-suite run), fall back to
+  // the supplied suite list or all 4 PAM suites.
+  const suiteIds: string[] | undefined = opts.flowIds?.length
+    ? undefined
+    : (opts.suiteIds ?? Object.values(config.suites));
 
-  logger.info(
-    `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
-    {
-      environment: opts.environment,
-      appId,
-      suiteIds,
-      flowIds: opts.flowIds,
-      jiraKey: opts.jiraKey,
-    },
-  );
+  if (suiteIds) {
+    logger.info(
+      `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
+      { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
+    );
+  } else {
+    logger.info(
+      `Triggering ${opts.flowIds!.length} specific flow(s) against ${opts.environment}`,
+      { environment: opts.environment, appId, flowIds: opts.flowIds, jiraKey: opts.jiraKey },
+    );
+  }
 
   const result = await triggerRun({
     app_id:    appId,

@@ -99,8 +99,8 @@ export async function getFlow(flowId: string): Promise<AutosanaFlow> {
  */
 export async function triggerRun(params: {
   app_id: string;
-  suite_ids: string[];
-  flow_ids?: string[];
+  suite_ids?: string[];   // run full suites; omit when flow_ids is specified
+  flow_ids?: string[];    // run specific flows (auth resolved per flow automatically)
 }): Promise<AutosanaRunResult> {
   return api<AutosanaRunResult>('POST', '/flows/run', params);
 }

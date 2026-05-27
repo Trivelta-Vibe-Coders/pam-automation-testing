@@ -350,13 +350,14 @@ document.querySelectorAll('.env-btn').forEach(btn=>{
 // Run
 document.getElementById('run-btn').addEventListener('click', async ()=>{
   const flowIds  = [...selectedFlows.keys()];
-  const suiteIds = [...new Set([...selectedFlows.values()].map(v=>v.suiteId))];
   const resultEl = document.getElementById('run-result');
   const btn      = document.getElementById('run-btn');
   btn.disabled=true; btn.textContent='⏳ Triggering…'; resultEl.style.display='none';
 
   try{
-    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,flow_ids:flowIds,suite_ids:suiteIds})});
+    // Only send flow_ids — backend omits suite_ids so only the selected flows
+    // run. Autosana resolves each flow's suite auth instructions automatically.
+    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,flow_ids:flowIds})});
     const data = await res.json();
     if(data.ok){
       resultEl.innerHTML=`<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} running in parallel on <strong>${currentEnv}</strong></div><div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
