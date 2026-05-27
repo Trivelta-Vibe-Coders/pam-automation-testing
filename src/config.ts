@@ -49,4 +49,8 @@ export const config = {
 
   // Data directory for flow-link persistence
   dataDir: optional_env('DATA_DIR', '/app/data'),
+
+  // GitHub Actions dispatch (for post-run Slack reports)
+  githubToken: optional_env('GITHUB_DISPATCH_TOKEN'),  // required for Slack results
+  githubRepo:  optional_env('GITHUB_REPO', 'Trivelta-Vibe-Coders/tcm-automation-testing'),
 } as const;

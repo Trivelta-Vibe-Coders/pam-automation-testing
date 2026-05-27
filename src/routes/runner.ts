@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { listFlows } from '../services/autosana';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
+import { startPolling } from '../services/batch-poller';
 import * as logger from '../logger';
 import { config } from '../config';
 
@@ -89,6 +90,10 @@ runnerRouter.post('/run', async (req: Request, res: Response) => {
 
   try {
     const result = await triggerFlows({ environment, suiteIds, flowIds });
+
+    // Start background polling → dispatches GitHub Actions → Slack report when done
+    startPolling({ batchId: result.batchId, environment, triggeredBy: 'manual' });
+
     res.json({ ok: true, ...result });
   } catch (err) {
     logger.error('Manual run failed', { error: String(err) });

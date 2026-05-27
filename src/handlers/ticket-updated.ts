@@ -15,6 +15,7 @@ import * as autosana from '../services/autosana';
 import * as matcher from '../services/flow-matcher';
 import * as flowLinks from '../services/flow-links';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
+import { startPolling } from '../services/batch-poller';
 import { config } from '../config';
 
 // Map Jira status names → Autosana environments
@@ -125,7 +126,10 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     return;
   }
 
-  // 4. Post Jira comment
+  // 4. Start background polling → Slack report when complete
+  startPolling({ batchId: result.batchId, environment: env, triggeredBy: key });
+
+  // 5. Post Jira comment
   try {
     const suitesRun = suiteIds
       ? Object.entries(config.suites)

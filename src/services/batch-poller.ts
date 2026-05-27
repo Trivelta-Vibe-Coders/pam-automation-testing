@@ -1,0 +1,143 @@
+/**
+ * Background batch poller.
+ *
+ * After a Test Runner run is triggered, call startPolling() with the batch_id.
+ * This runs entirely in the background — it polls Autosana every 60 s (max 90 min),
+ * and when the batch completes it fires a pam-suite-completed GitHub Actions dispatch
+ * for each suite, which triggers pam_report.py → full Slack report with AI
+ * classifications, severity buckets, and "Create Bug" buttons.
+ *
+ * Mirrors the logic in pam-webhook-dispatcher.js (Cloudflare Worker).
+ */
+import { getRunStatus } from './autosana';
+import { dispatchSuiteCompleted, FlowRunResult } from './github';
+import * as logger from '../logger';
+import { config } from '../config';
+
+const POLL_INTERVAL_MS = 60_000;   // 60 seconds
+const MAX_POLLS        = 90;        // 90 minutes max
+
+// ── Status response types (Autosana /runs/status) ────────────────────────────
+
+interface AutosanaRun {
+  id:      string;
+  name:    string;
+  status:  string;   // "pass" | "fail" | "failed" | "error" | "running" | ...
+  summary: string;
+}
+
+interface AutosanaRunGroup {
+  name: string;   // suite name
+  url:  string;
+  runs: AutosanaRun[];
+}
+
+interface BatchStatus {
+  is_complete: boolean;
+  run_groups:  AutosanaRunGroup[];
+  summary?: {
+    passed_flows: number;
+    failed_flows: number;
+    total_flows:  number;
+  };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function normaliseStatus(raw: string): string {
+  const s = (raw || 'unknown').toLowerCase();
+  if (s === 'pass')                      return 'passed';
+  if (s === 'fail' || s === 'failed')    return 'failed';
+  return s;
+}
+
+function suiteIdForName(name: string): string | undefined {
+  return config.suites[name as keyof typeof config.suites];
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export function startPolling(params: {
+  batchId:     string;
+  environment: string;
+  triggeredBy: string;   // "manual" | jira key
+}): void {
+  const { batchId, environment, triggeredBy } = params;
+  const runDate = new Date().toISOString().slice(0, 10);
+
+  logger.info(`Polling started for batch ${batchId}`, { batchId, environment, triggeredBy });
+
+  // Run in background — no await
+  void (async () => {
+    for (let i = 1; i <= MAX_POLLS; i++) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+
+      let status: BatchStatus;
+      try {
+        status = await getRunStatus(batchId) as BatchStatus;
+      } catch (err) {
+        logger.warn(`Poll ${i}/${MAX_POLLS} error for batch ${batchId}`, { error: String(err) });
+        continue;
+      }
+
+      const s = status.summary;
+      logger.info(
+        `Poll ${i}/${MAX_POLLS} — batch ${batchId}: complete=${status.is_complete}` +
+        (s ? ` passed=${s.passed_flows} failed=${s.failed_flows}` : ''),
+      );
+
+      if (!status.is_complete) continue;
+
+      // ── Batch finished — dispatch per suite ─────────────────────────────────
+      logger.success(`Batch ${batchId} complete — dispatching Slack reports`, { batchId });
+
+      const groups = status.run_groups ?? [];
+      let dispatched = 0;
+
+      for (const group of groups) {
+        const suiteName = group.name;
+        const suiteId   = suiteIdForName(suiteName);
+
+        if (!suiteId) {
+          logger.warn(`Unknown suite in batch results: "${suiteName}" — skipping`);
+          continue;
+        }
+
+        const flows: FlowRunResult[] = (group.runs ?? []).map(run => ({
+          flow_id:   run.id   ?? '',
+          flow_name: run.name ?? 'Unknown',
+          run: {
+            status:       normaliseStatus(run.status),
+            summary:      run.summary ?? '',
+            issues:       [],
+            last_actions: [],
+          },
+        }));
+
+        try {
+          await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment });
+          logger.success(`GitHub dispatch sent for "${suiteName}"`, { suiteId, flowCount: flows.length });
+          dispatched++;
+        } catch (err) {
+          logger.error(`Failed to dispatch "${suiteName}"`, { error: String(err) });
+        }
+      }
+
+      if (dispatched === 0) {
+        logger.warn(`Batch ${batchId} complete but no suites were dispatched`);
+      } else {
+        logger.info(
+          `${dispatched} suite(s) dispatched to GitHub Actions — Slack reports incoming`,
+          { batchId, dispatched },
+        );
+      }
+
+      return;  // done — exit the polling loop
+    }
+
+    // Timed out
+    logger.error(`Batch ${batchId} timed out after ${MAX_POLLS} min — no Slack report sent`, {
+      batchId, environment,
+    });
+  })();
+}
