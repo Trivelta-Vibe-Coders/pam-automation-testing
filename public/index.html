@@ -510,9 +510,13 @@ function addBullet(key, ev, text, isHistorical) {
 /**
  * Main event handler — called for every SSE event.
  * isHistorical = true for events replayed from the ring buffer on connect.
+ *
+ * Ticket cards are loaded from /api/tickets (persistent store).
+ * Historical SSE events only update stats + the System card.
+ * Live SSE events update ticket cards in real-time as they arrive.
  */
 function appendEvent(ev, isHistorical) {
-  // Update global stats
+  // Always update global stats
   totalCount++;
   if (ev.level === 'success') successCount++;
   if (ev.level === 'warning') warningCount++;
@@ -523,14 +527,47 @@ function appendEvent(ev, isHistorical) {
   document.getElementById('cnt-error').textContent   = errorCount;
   document.getElementById('event-count').textContent = totalCount;
 
-  // Determine which ticket this event belongs to
-  const key = extractTicketKey(ev);
-
   // Convert to human-readable text (null = suppress)
   const text = prettify(ev.message, ev.details ?? {});
   if (text === null) return;
 
-  addBullet(key ?? 'SYSTEM', ev, text, isHistorical);
+  const key = extractTicketKey(ev);
+
+  if (isHistorical) {
+    // Ticket cards come from /api/tickets — don't duplicate from ring buffer.
+    // Only route historical events into the System card.
+    if (!key) addBullet('SYSTEM', ev, text, true);
+    return;
+  }
+
+  // Live event — update the relevant ticket card (or System)
+  addBullet(key ?? 'SYSTEM', ev, text, false);
+}
+
+// ── Load ticket cards from persistent store ───────────────────────────────────
+async function loadTickets() {
+  try {
+    const tickets = await fetch('/api/tickets').then(r => r.json());
+    for (const ticket of tickets) {
+      // Skip if a live SSE event already created this card
+      if (ticketCards.has(ticket.key)) continue;
+
+      const entry = getOrCreateCard(ticket.key);
+
+      // Set title if available
+      if (ticket.title) {
+        const t = ticket.title;
+        entry.summaryEl.textContent = t.length > 55 ? t.slice(0, 52) + '…' : t;
+      }
+
+      // Restore each event as a bullet (historical — no scroll)
+      for (const ev of ticket.events) {
+        const text = prettify(ev.message, ev.details ?? {});
+        if (text === null) continue;
+        addBullet(ticket.key, ev, text, true);
+      }
+    }
+  } catch {}
 }
 
 // ── Flow links ────────────────────────────────────────────────────────────────
@@ -561,6 +598,7 @@ function connect() {
     document.getElementById('dot').classList.add('connected');
     document.getElementById('conn-label').textContent = 'Live';
     loadLinks();
+    loadTickets();
   };
 
   es.onmessage = e => {

@@ -16,7 +16,8 @@ import { config } from './config';
 import * as logger from './logger';
 import { webhookRouter } from './routes/webhook';
 import { runnerRouter } from './routes/runner';
-import * as flowLinks from './services/flow-links';
+import * as flowLinks   from './services/flow-links';
+import * as ticketStore from './services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
 
@@ -77,6 +78,11 @@ app.get('/events', (req: Request, res: Response) => {
 // ── API: stored flow links ───────────────────────────────────────────────────
 app.get('/api/links', (_req: Request, res: Response) => {
   res.json(flowLinks.getAllLinks());
+});
+
+// ── API: persistent ticket records ───────────────────────────────────────────
+app.get('/api/tickets', (_req: Request, res: Response) => {
+  res.json(ticketStore.getAllTickets());
 });
 
 // ── API: manual trigger ───────────────────────────────────────────────────────

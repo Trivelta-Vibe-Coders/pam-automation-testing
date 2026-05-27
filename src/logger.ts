@@ -2,6 +2,7 @@ import fs   from 'fs';
 import path from 'path';
 import { Response } from 'express';
 import { ActivityEvent, ActivityLevel } from './types';
+import * as ticketStore from './services/ticket-store';
 
 // ── In-memory ring buffer (last 500 events) ───────────────────────────────────
 const MAX_EVENTS = 500;
@@ -73,8 +74,12 @@ export function log(
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
 
-  // persist to volume so history survives redeploys
+  // persist activity log to volume
   saveToDisk();
+
+  // persist to per-ticket store (independent of ring buffer limit)
+  const pamKey = ticketStore.extractPamKey(message, details);
+  if (pamKey) ticketStore.addEvent(pamKey, event);
 
   // broadcast to SSE subscribers
   const data = `data: ${JSON.stringify(event)}\n\n`;
