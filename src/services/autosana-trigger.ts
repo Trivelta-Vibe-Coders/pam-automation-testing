@@ -11,7 +11,6 @@ export type TriggerEnvironment = 'staging' | 'dev';
 export interface TriggerOptions {
   environment: TriggerEnvironment;
   suiteIds?: string[];     // if omitted, trigger all 4 PAM suites
-  flowIds?: string[];      // optional flow-level filter
   jiraKey?: string;        // for logging
 }
 
@@ -32,33 +31,16 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
     throw new Error(`No Autosana app_id configured for environment "${opts.environment}"`);
   }
 
-  // When specific flow_ids are provided, omit suite_ids entirely.
-  // Autosana automatically resolves each flow's suite auth instructions when
-  // triggered by flow_id — passing suite_ids alongside flow_ids causes the
-  // entire suite(s) to run rather than just the selected flows.
-  //
-  // When no flow_ids are given (Jira trigger or full-suite run), fall back to
-  // the supplied suite list or all 4 PAM suites.
-  const suiteIds: string[] | undefined = opts.flowIds?.length
-    ? undefined
-    : (opts.suiteIds ?? Object.values(config.suites));
+  const suiteIds = opts.suiteIds ?? Object.values(config.suites);
 
-  if (suiteIds) {
-    logger.info(
-      `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
-      { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
-    );
-  } else {
-    logger.info(
-      `Triggering ${opts.flowIds!.length} specific flow(s) against ${opts.environment}`,
-      { environment: opts.environment, appId, flowIds: opts.flowIds, jiraKey: opts.jiraKey },
-    );
-  }
+  logger.info(
+    `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
+    { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
+  );
 
   const result = await triggerRun({
     app_id:    appId,
     suite_ids: suiteIds,
-    flow_ids:  opts.flowIds,
   });
 
   logger.success(
@@ -67,9 +49,9 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
   );
 
   return {
-    batchId:       result.batch_id,
-    flowRunCount:  result.flow_run_count,
+    batchId:      result.batch_id,
+    flowRunCount: result.flow_run_count,
     appId,
-    environment:   opts.environment,
+    environment:  opts.environment,
   };
 }

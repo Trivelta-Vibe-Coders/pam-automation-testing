@@ -90,11 +90,10 @@
     .suite-card.collapsed .suite-chevron { transform:rotate(-90deg); }
     .flows-list { }
     .suite-card.collapsed .flows-list { display:none; }
-    .flow-row { display:flex; align-items:center; gap:10px; padding:8px 16px 8px 44px; border-bottom:1px solid var(--border); transition:background .1s; }
+    .flow-row { display:flex; align-items:center; gap:8px; padding:7px 16px 7px 42px; border-bottom:1px solid var(--border); }
     .flow-row:last-child { border-bottom:none; }
-    .flow-row:hover { background:var(--bg3); }
-    .flow-check { width:15px; height:15px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; }
-    .flow-name { font-size:13px; color:var(--text); flex:1; line-height:1.4; }
+    .flow-bullet { color:var(--muted); font-size:12px; flex-shrink:0; }
+    .flow-name { font-size:12px; color:var(--muted); flex:1; line-height:1.4; }
     .suite-loading { padding:16px; color:var(--muted); font-size:12px; text-align:center; }
 
     /* Runner controls sidebar */
@@ -169,7 +168,7 @@
     </div>
     <div>
       <span class="ctrl-label">Selection</span>
-      <div class="selection-summary" id="sel-summary">0 flows selected</div>
+      <div class="selection-summary" id="sel-summary">0 suites selected</div>
     </div>
     <button class="run-btn" id="run-btn" disabled>▶ Run Selected</button>
     <div id="run-result" style="display:none" class="run-result"></div>
@@ -181,7 +180,7 @@
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
-const selectedFlows = new Map(); // flowId → {flowName, suiteId, suiteName}
+const selectedSuites = new Map(); // suiteId → suiteName
 let currentEnv = 'staging';
 let suitesLoaded = false;
 
@@ -256,29 +255,12 @@ refreshUptime(); setInterval(refreshUptime,10000);
 
 // ── Runner ────────────────────────────────────────────────────────────────────
 function updateRunBtn() {
-  const n = selectedFlows.size;
-  document.getElementById('sel-summary').textContent = n===0?'0 flows selected':`${n} flow${n===1?'':'s'} selected`;
+  const n   = selectedSuites.size;
   const btn = document.getElementById('run-btn');
-  btn.textContent = n===0?'▶ Run Selected':`▶ Run ${n} Flow${n===1?'':'s'} in Parallel`;
+  document.getElementById('sel-summary').textContent =
+    n===0 ? '0 suites selected' : `${n} suite${n===1?'':'s'} selected`;
+  btn.textContent = n===0 ? '▶ Run Selected' : `▶ Run ${n} Suite${n===1?'':'s'}`;
   btn.disabled = n===0;
-}
-
-function updateSuiteCheckbox(suiteId) {
-  const cbs   = [...document.querySelectorAll(`.flow-check[data-suite="${suiteId}"]`)];
-  const n     = cbs.filter(c=>c.checked).length;
-  const sCb   = document.querySelector(`.suite-check[data-suite="${suiteId}"]`);
-  if(!sCb) return;
-  sCb.checked = n===cbs.length && cbs.length>0;
-  sCb.indeterminate = n>0 && n<cbs.length;
-}
-
-function setSuiteCheck(suiteId, checked) {
-  document.querySelectorAll(`.flow-check[data-suite="${suiteId}"]`).forEach(cb=>{
-    cb.checked = checked;
-    if(checked) selectedFlows.set(cb.dataset.flow,{flowName:cb.dataset.name,suiteId,suiteName:cb.dataset.suitename});
-    else        selectedFlows.delete(cb.dataset.flow);
-  });
-  updateSuiteCheckbox(suiteId); updateRunBtn();
 }
 
 function renderSuites(data) {
@@ -293,9 +275,9 @@ function renderSuites(data) {
     const fc = suite.flows.length;
     card.innerHTML=`
       <div class="suite-header">
-        <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" />
+        <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" data-name="${esc(suite.suite_name)}" />
         <span class="suite-name">${esc(suite.suite_name)}</span>
-        <span class="suite-badge">${fc} flow${fc===1?'':'s'}</span>
+        <span class="suite-badge">${fc} test${fc===1?'':'s'}</span>
         <span class="suite-chevron">▾</span>
       </div>
       <div class="flows-list">${
@@ -303,9 +285,7 @@ function renderSuites(data) {
           ? '<div class="suite-loading">No flows yet.</div>'
           : suite.flows.map(f=>`
               <div class="flow-row">
-                <input type="checkbox" class="flow-check"
-                  data-flow="${esc(f.id)}" data-suite="${esc(suite.suite_id)}"
-                  data-name="${esc(f.name)}" data-suitename="${esc(suite.suite_name)}" />
+                <span class="flow-bullet">›</span>
                 <span class="flow-name">${esc(f.name)}</span>
               </div>`).join('')
       }</div>`;
@@ -314,14 +294,11 @@ function renderSuites(data) {
       if(e.target.classList.contains('suite-check')) return;
       card.classList.toggle('collapsed');
     });
-    card.querySelector('.suite-check').addEventListener('change', e=>setSuiteCheck(suite.suite_id, e.target.checked));
-    card.querySelectorAll('.flow-check').forEach(cb=>{
-      cb.addEventListener('change', e=>{
-        if(e.target.checked) selectedFlows.set(e.target.dataset.flow,{flowName:e.target.dataset.name,suiteId:e.target.dataset.suite,suiteName:e.target.dataset.suitename});
-        else                 selectedFlows.delete(e.target.dataset.flow);
-        updateSuiteCheckbox(e.target.dataset.suite);
-        updateRunBtn();
-      });
+    card.querySelector('.suite-check').addEventListener('change', e=>{
+      const cb = e.target;
+      if(cb.checked) selectedSuites.set(cb.dataset.suite, cb.dataset.name);
+      else           selectedSuites.delete(cb.dataset.suite);
+      updateRunBtn();
     });
     container.appendChild(card);
   }
@@ -349,18 +326,20 @@ document.querySelectorAll('.env-btn').forEach(btn=>{
 
 // Run
 document.getElementById('run-btn').addEventListener('click', async ()=>{
-  const flowIds  = [...selectedFlows.keys()];
+  const suiteIds = [...selectedSuites.keys()];
   const resultEl = document.getElementById('run-result');
   const btn      = document.getElementById('run-btn');
   btn.disabled=true; btn.textContent='⏳ Triggering…'; resultEl.style.display='none';
 
   try{
-    // Only send flow_ids — backend omits suite_ids so only the selected flows
-    // run. Autosana resolves each flow's suite auth instructions automatically.
-    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,flow_ids:flowIds})});
+    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,suite_ids:suiteIds})});
     const data = await res.json();
     if(data.ok){
-      resultEl.innerHTML=`<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} running in parallel on <strong>${currentEnv}</strong></div><div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
+      const suiteNames = suiteIds.map(id=>selectedSuites.get(id)).join(', ');
+      resultEl.innerHTML=
+        `<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} triggered on <strong>${currentEnv}</strong></div>`+
+        `<div class="res-label" style="margin-top:6px">Suite(s): ${esc(suiteNames)}</div>`+
+        `<div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
     } else {
       resultEl.innerHTML=`<div class="res-error">❌ ${esc(data.error)}</div>`;
     }
@@ -374,7 +353,7 @@ document.getElementById('run-btn').addEventListener('click', async ()=>{
 
 // Refresh
 document.getElementById('refresh-btn').addEventListener('click', async()=>{
-  selectedFlows.clear(); updateRunBtn();
+  selectedSuites.clear(); updateRunBtn();
   await fetch('/api/refresh-flows',{method:'POST'});
   loadSuites();
 });

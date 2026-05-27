@@ -82,6 +82,8 @@ export interface AutosanaSuite {
   id: string;
   name: string;
   description?: string;
+  auth_instructions?: string | null;
+  setup_flow_id?: string | null;
 }
 
 export interface AutosanaRunResult {

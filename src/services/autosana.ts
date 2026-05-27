@@ -37,6 +37,14 @@ export async function listSuites(): Promise<AutosanaSuite[]> {
   return data.suites ?? data.data ?? (data as unknown as AutosanaSuite[]);
 }
 
+export async function getSuite(suiteId: string): Promise<AutosanaSuite> {
+  const data = await api<{ suite?: AutosanaSuite } | AutosanaSuite>(
+    'GET',
+    `/suites/${encodeURIComponent(suiteId)}`,
+  );
+  return ('suite' in data && data.suite) ? data.suite : (data as AutosanaSuite);
+}
+
 // ── Flows ─────────────────────────────────────────────────────────────────────
 
 export async function listFlows(suiteId: string): Promise<AutosanaFlow[]> {
@@ -103,6 +111,10 @@ export async function triggerRun(params: {
   flow_ids?: string[];    // run specific flows (auth resolved per flow automatically)
 }): Promise<AutosanaRunResult> {
   return api<AutosanaRunResult>('POST', '/flows/run', params);
+}
+
+export async function deleteFlow(flowId: string): Promise<void> {
+  await api<void>('DELETE', `/flows/${encodeURIComponent(flowId)}`);
 }
 
 export async function getRunStatus(batchId: string): Promise<unknown> {
