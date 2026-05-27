@@ -49,25 +49,56 @@
     .panel { display:none; flex:1; overflow:hidden; min-height:0; }
     .panel.active { display:flex; }
 
-    /* ── Activity Log ── */
+    /* ── Activity Log panel layout ── */
     #panel-log { flex-direction:row; }
     .log-section { display:flex; flex-direction:column; flex:1; overflow:hidden; border-right:1px solid var(--border); }
     .panel-header { padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
     .panel-header .count { background:var(--border); color:var(--text); border-radius:999px; padding:1px 7px; font-size:10px; }
     .auto-scroll-toggle { margin-left:auto; display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--muted); font-size:11px; }
-    #log { flex:1; overflow-y:auto; padding:6px 0; font-family:var(--font-mono); font-size:12px; }
-    .event { display:grid; grid-template-columns:140px 58px 1fr; gap:0 8px; padding:4px 16px; align-items:start; }
-    .event:hover { background:var(--bg2); }
-    .event-time { color:var(--muted); white-space:nowrap; }
-    .badge { font-size:10px; font-weight:700; padding:1px 5px; border-radius:3px; text-transform:uppercase; text-align:center; white-space:nowrap; }
-    .badge-info{background:#1e3a5f;color:var(--blue)} .badge-success{background:#14532d;color:var(--green)}
-    .badge-warning{background:#422006;color:var(--yellow)} .badge-error{background:#450a0a;color:var(--red)}
-    .event-msg { word-break:break-word; }
-    .has-details .event-msg { cursor:pointer; }
-    .has-details .event-msg::after { content:' ▸'; color:var(--muted); font-size:10px; }
-    .event.expanded .has-details .event-msg::after { content:' ▾'; }
-    .event-details { grid-column:3; margin-top:3px; padding:6px 10px; background:var(--bg); border:1px solid var(--border); border-radius:4px; font-size:11px; color:var(--muted); white-space:pre-wrap; word-break:break-all; display:none; }
-    .event.expanded .event-details { display:block; }
+
+    /* ── Ticket Cards ── */
+    #log { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
+
+    .tc-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px; overflow:hidden; transition:border-color .2s; }
+    .tc-card[data-level="success"] { border-color:rgba(34,197,94,.35); }
+    .tc-card[data-level="warning"] { border-color:rgba(234,179,8,.35); }
+    .tc-card[data-level="error"]   { border-color:rgba(239,68,68,.4); }
+
+    .tc-header { display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; user-select:none; min-width:0; }
+    .tc-header:hover { background:var(--bg3); }
+
+    .tc-key { font-weight:700; color:var(--indigo); font-size:13px; font-family:var(--font-mono); flex-shrink:0; }
+    .tc-card.tc-system .tc-key { color:var(--muted); }
+
+    .tc-summary { color:var(--muted); font-size:12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+
+    .tc-status { flex-shrink:0; width:7px; height:7px; border-radius:50%; background:var(--muted); }
+    .tc-status.info    { background:var(--blue); }
+    .tc-status.success { background:var(--green); }
+    .tc-status.warning { background:var(--yellow); }
+    .tc-status.error   { background:var(--red); }
+
+    .tc-count { background:var(--border); color:var(--text); border-radius:999px; padding:2px 8px; font-size:11px; flex-shrink:0; }
+    .tc-chevron { color:var(--muted); font-size:11px; transition:transform .2s; flex-shrink:0; }
+    .tc-card.collapsed .tc-chevron { transform:rotate(-90deg); }
+
+    .tc-body { border-top:1px solid var(--border); }
+    .tc-card.collapsed .tc-body { display:none; }
+
+    .tc-bullets { list-style:none; padding:0; margin:0; }
+    .tc-bullet { display:flex; align-items:flex-start; gap:10px; padding:8px 14px 8px 18px; border-bottom:1px solid rgba(45,49,72,.6); }
+    .tc-bullet:last-child { border-bottom:none; }
+
+    .tc-bullet-dot { flex-shrink:0; margin-top:6px; width:6px; height:6px; border-radius:50%; }
+    .tc-bullet-dot.info    { background:var(--blue); }
+    .tc-bullet-dot.success { background:var(--green); }
+    .tc-bullet-dot.warning { background:var(--yellow); }
+    .tc-bullet-dot.error   { background:var(--red); }
+
+    .tc-bullet-text { flex:1; font-size:13px; line-height:1.5; color:var(--text); }
+    .tc-bullet-time { color:var(--muted); font-size:10px; font-family:var(--font-mono); flex-shrink:0; padding-top:3px; }
+
+    /* ── Flow Links sidebar ── */
     .links-section { width:280px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
     #links-list { flex:1; overflow-y:auto; padding:8px; }
     .link-card { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12px; }
@@ -178,14 +209,15 @@
 </div>
 
 <script>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(iso) { const d=new Date(iso); return d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
 const selectedSuites = new Map(); // suiteId → suiteName
 let currentEnv = 'staging';
 let suitesLoaded = false;
-
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function fmtTime(iso){ const d=new Date(iso); return d.toLocaleTimeString('en-US',{hour12:false})+'.'+String(d.getMilliseconds()).padStart(3,'0'); }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
@@ -198,82 +230,395 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-// ── Activity log ──────────────────────────────────────────────────────────────
+// ── Activity log: ticket-grouped cards ───────────────────────────────────────
 const logEl = document.getElementById('log');
-function appendEvent(ev) {
+const ticketCards = new Map(); // key → { card, listEl, countEl, summaryEl, statusEl, count, level }
+let lastSeenKey = null;
+
+// Priority order for log levels (higher = more severe)
+function levelPriority(l) { return {error:3,warning:2,success:1,info:0}[l]??0; }
+
+/**
+ * Extract PAMENG ticket key from event.
+ * Tries details fields first, then message text, then falls back to
+ * lastSeenKey for "continuation" messages that logically follow a ticket handler.
+ */
+function extractTicketKey(ev) {
+  const d = ev.details ?? {};
+  const pamRe = /^[A-Z]+-\d+$/;
+
+  if (d.key       && pamRe.test(d.key))         return d.key;
+  if (d.jiraKey   && pamRe.test(d.jiraKey))      return d.jiraKey;
+  if (d.triggeredBy && pamRe.test(d.triggeredBy)) return d.triggeredBy;
+
+  const inMsg = (ev.message || '').match(/\b([A-Z]+-\d+)\b/);
+  if (inMsg) return inMsg[1];
+
+  // Continuation messages — inherit last seen key (they follow ticket handler logic)
+  const msg = ev.message || '';
+  const isContinuation =
+    /^Fetched \d+ existing flow/.test(msg) ||
+    /^(No existing flows matched|Best match ".+?" scored \d+%)/.test(msg) ||
+    /^Fallback match:/.test(msg);
+  if (isContinuation && lastSeenKey) return lastSeenKey;
+
+  return null; // system / server event
+}
+
+/**
+ * Convert a raw log message to a human-readable bullet string.
+ * Returns null to suppress noisy/low-value messages.
+ */
+function prettify(msg, details) {
+  if (/^Ticket created:/.test(msg))
+    return 'Ticket created';
+
+  if (/^Fetched \d+ existing flow/.test(msg)) {
+    const n = msg.match(/\d+/)?.[0] ?? '?';
+    return `Searched Autosana — found ${n} existing flow${n==='1'?'':'s'}`;
+  }
+
+  if (/^Match found for \S+:/.test(msg)) {
+    const name  = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
+    const score = msg.match(/\(score (\d+)%\)/)?.[1] ?? '?';
+    return `Found matching flow: "${name}" (${score}% match)`;
+  }
+
+  if (/^No existing flows matched/.test(msg))
+    return 'No matching flow found — creating a new flow';
+
+  if (/^Best match ".+?" scored \d+%/.test(msg)) {
+    const score = msg.match(/scored (\d+)%/)?.[1] ?? '?';
+    return `Best match scored ${score}% (below threshold) — creating a new flow`;
+  }
+
+  if (/^Flow ".+?" updated to cover/.test(msg)) {
+    const name = msg.match(/^Flow "([^"]+)"/)?.[1] ?? 'flow';
+    return `Updated existing flow "${name}" with coverage for this ticket`;
+  }
+
+  if (/^New flow ".+?" created in suite/.test(msg)) {
+    const name  = msg.match(/^New flow "([^"]+)"/)?.[1]   ?? 'flow';
+    const suite = msg.match(/in suite "([^"]+)"/)?.[1] ?? 'suite';
+    return `Created new flow "${name}" in the "${suite}" suite`;
+  }
+
+  if (/moved to ".+?" → triggering/.test(msg)) {
+    const status = msg.match(/moved to "([^"]+)"/)?.[1] ?? '?';
+    const env    = msg.match(/triggering (\w+) run/)?.[1] ?? '?';
+    return `Ticket moved to "${status}" — running tests on ${env}`;
+  }
+
+  if (/^Found stored flow link for/.test(msg)) {
+    const name = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
+    return `Found linked flow: "${name}"`;
+  }
+
+  if (/^No stored flow link for/.test(msg))
+    return 'No flow link found — running semantic search for best match';
+
+  if (/^Fallback match:/.test(msg)) {
+    const name  = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
+    const score = msg.match(/\(score (\d+)%\)/)?.[1] ?? '?';
+    return `Fallback: matched flow "${name}" (${score}% confidence)`;
+  }
+
+  if (/^No high-confidence flow match for/.test(msg))
+    return 'No high-confidence match — triggering all PAM suites as fallback';
+
+  if (/^Jira comment posted on/.test(msg))
+    return 'Posted run details to Jira ticket';
+
+  if (/^Could not post Jira comment on/.test(msg))
+    return 'Warning: could not post comment to Jira';
+
+  if (/^Trigger failed for/.test(msg))
+    return 'Failed to trigger test run';
+
+  if (/^Failed to fetch Autosana flows/.test(msg))
+    return 'Failed to fetch flows from Autosana';
+
+  if (/^Flow match\/create failed for/.test(msg))
+    return 'Flow matching / creation failed';
+
+  if (/^Semantic match fallback failed for/.test(msg))
+    return 'Semantic match fallback failed';
+
+  if (/^Unhandled error processing/.test(msg))
+    return 'Unhandled error while processing ticket';
+
+  if (/^Webhook received:/.test(msg)) {
+    if (msg.includes('issue_created')) return 'Webhook received — ticket created';
+    if (msg.includes('issue_updated')) return 'Webhook received — ticket updated';
+    return 'Webhook received';
+  }
+
+  if (/^Triggering \d+ suite/.test(msg)) {
+    const n   = msg.match(/Triggering (\d+)/)?.[1] ?? '?';
+    const env = msg.match(/against (\w+)/)?.[1]    ?? '?';
+    return `Triggering ${n} test suite${n==='1'?'':'s'} on ${env}`;
+  }
+
+  if (/^Run triggered —/.test(msg)) {
+    const flows      = msg.match(/\((\d+) flows?\)/)?.[1]   ?? '?';
+    const batchShort = (details?.batchId ?? msg.match(/batch_id: ([^\s(]+)/)?.[1] ?? '').slice(0,8);
+    return `Test run started — ${flows} flow${flows==='1'?'':'s'} queued${batchShort ? ` (batch ${batchShort}…)` : ''}`;
+  }
+
+  if (/^Polling started for batch/.test(msg)) {
+    const batchShort = (details?.batchId ?? '').slice(0,8);
+    return `Polling for test results${batchShort ? ` (batch ${batchShort}…)` : ''}`;
+  }
+
+  // Suppress verbose poll-tick messages
+  if (/^Poll \d+\/\d+/.test(msg)) return null;
+
+  if (/^Batch \S+ complete — dispatching/.test(msg))
+    return 'Tests completed — sending Slack reports';
+
+  if (/^GitHub dispatch sent for/.test(msg)) {
+    const suite = msg.match(/for "([^"]+)"/)?.[1] ?? 'suite';
+    return `Slack report dispatched for the "${suite}" suite`;
+  }
+
+  if (/suite\(s\) dispatched to GitHub Actions/.test(msg)) {
+    const n = msg.match(/^(\d+)/)?.[1] ?? '?';
+    return `${n} Slack report${n==='1'?'':'s'} dispatched`;
+  }
+
+  if (/^Batch \S+ complete but no suites/.test(msg))
+    return 'Tests completed but no reports were dispatched';
+
+  if (/^Batch \S+ timed out/.test(msg))
+    return 'Test run timed out — no Slack report sent';
+
+  if (/^Manual run triggered:/.test(msg)) {
+    const n   = msg.match(/(\d+) suite/)?.[1] ?? '?';
+    const env = msg.match(/on (\w+)/)?.[1]    ?? '?';
+    return `Manual run: ${n} suite${n==='1'?'':'s'} on ${env}`;
+  }
+
+  if (/^Unknown suite in batch results/.test(msg))
+    return 'Warning: unknown suite in results — skipped';
+
+  if (/^Failed to dispatch/.test(msg)) {
+    const suite = msg.match(/"([^"]+)"/)?.[1] ?? 'suite';
+    return `Failed to dispatch Slack report for "${suite}"`;
+  }
+
+  // Fallback: return the original message as-is
+  return msg;
+}
+
+/**
+ * Find or create a ticket card in the log. Ticket cards are inserted at the top;
+ * the System card is always appended to the bottom.
+ */
+function getOrCreateCard(key) {
+  if (ticketCards.has(key)) return ticketCards.get(key);
+
+  const isSystem = (key === 'SYSTEM');
+  const card = document.createElement('div');
+  card.className = 'tc-card' + (isSystem ? ' tc-system' : '');
+  card.id = 'tc-' + key.replace(/[^a-zA-Z0-9-]/g, '_');
+
+  const displayKey = isSystem ? 'System' : esc(key);
+  card.innerHTML = `
+    <div class="tc-header">
+      <span class="tc-key">${displayKey}</span>
+      <span class="tc-summary"></span>
+      <span class="tc-status"></span>
+      <span class="tc-count">0</span>
+      <span class="tc-chevron">▾</span>
+    </div>
+    <div class="tc-body">
+      <ul class="tc-bullets"></ul>
+    </div>`;
+
+  card.querySelector('.tc-header').addEventListener('click', () => {
+    card.classList.toggle('collapsed');
+  });
+
+  if (isSystem) {
+    card.classList.add('collapsed'); // system starts collapsed
+    logEl.appendChild(card);
+  } else {
+    // Insert before System card (if present), otherwise prepend
+    const systemCard = document.getElementById('tc-SYSTEM');
+    if (systemCard) logEl.insertBefore(card, systemCard);
+    else            logEl.prepend(card);
+  }
+
+  const entry = {
+    card,
+    listEl:    card.querySelector('.tc-bullets'),
+    countEl:   card.querySelector('.tc-count'),
+    summaryEl: card.querySelector('.tc-summary'),
+    statusEl:  card.querySelector('.tc-status'),
+    count: 0,
+    level: 'info',
+  };
+
+  ticketCards.set(key, entry);
+  return entry;
+}
+
+/**
+ * Add a bullet item to a ticket card, updating the card's status indicator.
+ */
+function addBullet(key, ev, text, isHistorical) {
+  const entry = getOrCreateCard(key);
+
+  // Escalate card-level status
+  if (levelPriority(ev.level) > levelPriority(entry.level)) {
+    entry.level = ev.level;
+    entry.card.dataset.level = ev.level;
+    entry.statusEl.className = 'tc-status ' + ev.level;
+  }
+
+  // Set card summary from the ticket title (if available in creation message)
+  if (/^Ticket created:/.test(ev.message)) {
+    const titleMatch = ev.message.match(/—\s*"(.+)"$/);
+    if (titleMatch) {
+      const t = titleMatch[1];
+      entry.summaryEl.textContent = t.length > 55 ? t.slice(0, 52) + '…' : t;
+    }
+  } else if (!entry.summaryEl.textContent && text) {
+    // Use first event as a summary placeholder until we get the title
+    const t = text;
+    entry.summaryEl.textContent = t.length > 55 ? t.slice(0, 52) + '…' : t;
+  }
+
+  // Increment displayed bullet count
+  entry.count++;
+  entry.countEl.textContent = entry.count;
+
+  // Create bullet element
+  const li = document.createElement('li');
+  li.className = 'tc-bullet';
+  li.innerHTML =
+    `<span class="tc-bullet-dot ${ev.level}"></span>` +
+    `<span class="tc-bullet-text">${esc(text)}</span>` +
+    `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
+  entry.listEl.appendChild(li);
+
+  // Scroll card into view for live events only
+  if (!isHistorical && document.getElementById('auto-scroll').checked) {
+    entry.card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+/**
+ * Main event handler — called for every SSE event.
+ * isHistorical = true for events replayed from the ring buffer on connect.
+ */
+function appendEvent(ev, isHistorical) {
+  // Update global stats
   totalCount++;
-  if(ev.level==='success') successCount++;
-  if(ev.level==='warning') warningCount++;
-  if(ev.level==='error')   errorCount++;
+  if (ev.level === 'success') successCount++;
+  if (ev.level === 'warning') warningCount++;
+  if (ev.level === 'error')   errorCount++;
   document.getElementById('cnt-total').textContent   = totalCount;
   document.getElementById('cnt-success').textContent = successCount;
   document.getElementById('cnt-warning').textContent = warningCount;
   document.getElementById('cnt-error').textContent   = errorCount;
   document.getElementById('event-count').textContent = totalCount;
 
-  const bCls = {info:'badge-info',success:'badge-success',warning:'badge-warning',error:'badge-error'};
-  const bLbl = {info:'INFO',success:'OK',warning:'WARN',error:'ERR'};
-  const hasD = ev.details && Object.keys(ev.details).length>0;
-  const row  = document.createElement('div');
-  row.className = 'event'+(hasD?' has-details':'');
-  row.innerHTML = `<span class="event-time">${fmtTime(ev.timestamp)}</span><span class="badge ${bCls[ev.level]||'badge-info'}">${bLbl[ev.level]||ev.level}</span><span class="event-msg">${esc(ev.message)}</span>${hasD?`<pre class="event-details">${esc(JSON.stringify(ev.details,null,2))}</pre>`:''}`;
-  if(hasD) row.querySelector('.event-msg').addEventListener('click',()=>row.classList.toggle('expanded'));
-  logEl.appendChild(row);
-  if(document.getElementById('auto-scroll').checked) row.scrollIntoView({block:'end',behavior:'smooth'});
+  // Determine which ticket this event belongs to
+  const key = extractTicketKey(ev);
+  if (key && key !== 'SYSTEM') lastSeenKey = key;
+
+  // Convert to human-readable text (null = suppress)
+  const text = prettify(ev.message, ev.details ?? {});
+  if (text === null) return;
+
+  addBullet(key ?? 'SYSTEM', ev, text, isHistorical);
 }
 
 // ── Flow links ────────────────────────────────────────────────────────────────
 async function loadLinks() {
   try {
-    const links = await fetch('/api/links').then(r=>r.json());
+    const links = await fetch('/api/links').then(r => r.json());
     document.getElementById('links-count').textContent = links.length;
-    if(!links.length) return;
+    if (!links.length) return;
     const el = document.getElementById('links-list');
-    el.innerHTML='';
-    for(const l of links){
-      const c=document.createElement('div'); c.className='link-card';
-      c.innerHTML=`<div class="link-jira">${esc(l.jiraKey)}</div><div class="link-flow">${esc(l.flowName)}</div><div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>`;
+    el.innerHTML = '';
+    for (const l of links) {
+      const c = document.createElement('div');
+      c.className = 'link-card';
+      c.innerHTML =
+        `<div class="link-jira">${esc(l.jiraKey)}</div>` +
+        `<div class="link-flow">${esc(l.flowName)}</div>` +
+        `<div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>`;
       el.appendChild(c);
     }
-  } catch{}
+  } catch {}
 }
 
-// ── SSE ───────────────────────────────────────────────────────────────────────
+// ── SSE connection ────────────────────────────────────────────────────────────
 function connect() {
   const es = new EventSource('/events');
-  es.onopen = () => { document.getElementById('dot').classList.add('connected'); document.getElementById('conn-label').textContent='Live'; loadLinks(); };
-  es.onmessage = e => { try{ const ev=JSON.parse(e.data); appendEvent(ev); if(ev.message&&(ev.message.includes('flow')||ev.message.includes('Flow'))) loadLinks(); }catch{} };
-  es.onerror = () => { document.getElementById('dot').classList.remove('connected'); document.getElementById('conn-label').textContent='Reconnecting…'; es.close(); setTimeout(connect,3000); };
+
+  es.onopen = () => {
+    document.getElementById('dot').classList.add('connected');
+    document.getElementById('conn-label').textContent = 'Live';
+    loadLinks();
+  };
+
+  es.onmessage = e => {
+    try {
+      const ev = JSON.parse(e.data);
+      // Events older than 30 s are from the history replay on connect
+      const isHistorical = (Date.now() - new Date(ev.timestamp).getTime()) > 30_000;
+      appendEvent(ev, isHistorical);
+      if (ev.message && /flow/i.test(ev.message)) loadLinks();
+    } catch {}
+  };
+
+  es.onerror = () => {
+    document.getElementById('dot').classList.remove('connected');
+    document.getElementById('conn-label').textContent = 'Reconnecting…';
+    es.close();
+    setTimeout(connect, 3000);
+  };
 }
 connect();
 
 // ── Uptime ────────────────────────────────────────────────────────────────────
 async function refreshUptime() {
-  try{ const h=await fetch('/health').then(r=>r.json()); const s=h.uptime; document.getElementById('uptime').textContent=`Up ${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s`; }catch{ document.getElementById('uptime').textContent=''; }
+  try {
+    const h = await fetch('/health').then(r => r.json());
+    const s = h.uptime;
+    document.getElementById('uptime').textContent =
+      `Up ${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s`;
+  } catch {
+    document.getElementById('uptime').textContent = '';
+  }
 }
-refreshUptime(); setInterval(refreshUptime,10000);
+refreshUptime();
+setInterval(refreshUptime, 10_000);
 
-// ── Runner ────────────────────────────────────────────────────────────────────
+// ── Test Runner ───────────────────────────────────────────────────────────────
 function updateRunBtn() {
   const n   = selectedSuites.size;
   const btn = document.getElementById('run-btn');
   document.getElementById('sel-summary').textContent =
-    n===0 ? '0 suites selected' : `${n} suite${n===1?'':'s'} selected`;
-  btn.textContent = n===0 ? '▶ Run Selected' : `▶ Run ${n} Suite${n===1?'':'s'}`;
-  btn.disabled = n===0;
+    n === 0 ? '0 suites selected' : `${n} suite${n===1?'':'s'} selected`;
+  btn.textContent = n === 0 ? '▶ Run Selected' : `▶ Run ${n} Suite${n===1?'':'s'}`;
+  btn.disabled = n === 0;
 }
 
 function renderSuites(data) {
   suitesLoaded = true;
   const container = document.getElementById('suite-list');
-  container.innerHTML='';
-  if(!data.length){ container.innerHTML='<div class="suite-loading">No suites found.</div>'; return; }
+  container.innerHTML = '';
+  if (!data.length) { container.innerHTML = '<div class="suite-loading">No suites found.</div>'; return; }
 
-  for(const suite of data){
+  for (const suite of data) {
     const card = document.createElement('div');
-    card.className='suite-card';
+    card.className = 'suite-card';
     const fc = suite.flows.length;
-    card.innerHTML=`
+    card.innerHTML = `
       <div class="suite-header">
         <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" data-name="${esc(suite.suite_name)}" />
         <span class="suite-name">${esc(suite.suite_name)}</span>
@@ -281,23 +626,23 @@ function renderSuites(data) {
         <span class="suite-chevron">▾</span>
       </div>
       <div class="flows-list">${
-        fc===0
+        fc === 0
           ? '<div class="suite-loading">No flows yet.</div>'
-          : suite.flows.map(f=>`
+          : suite.flows.map(f => `
               <div class="flow-row">
                 <span class="flow-bullet">›</span>
                 <span class="flow-name">${esc(f.name)}</span>
               </div>`).join('')
       }</div>`;
 
-    card.querySelector('.suite-header').addEventListener('click', e=>{
-      if(e.target.classList.contains('suite-check')) return;
+    card.querySelector('.suite-header').addEventListener('click', e => {
+      if (e.target.classList.contains('suite-check')) return;
       card.classList.toggle('collapsed');
     });
-    card.querySelector('.suite-check').addEventListener('change', e=>{
+    card.querySelector('.suite-check').addEventListener('change', e => {
       const cb = e.target;
-      if(cb.checked) selectedSuites.set(cb.dataset.suite, cb.dataset.name);
-      else           selectedSuites.delete(cb.dataset.suite);
+      if (cb.checked) selectedSuites.set(cb.dataset.suite, cb.dataset.name);
+      else            selectedSuites.delete(cb.dataset.suite);
       updateRunBtn();
     });
     container.appendChild(card);
@@ -306,55 +651,63 @@ function renderSuites(data) {
 }
 
 async function loadSuites() {
-  suitesLoaded=false;
-  document.getElementById('suite-list').innerHTML='<div class="suite-loading">Loading suites and flows from Autosana…</div>';
-  try{
-    const data = await fetch('/api/suites-with-flows').then(r=>r.json());
+  suitesLoaded = false;
+  document.getElementById('suite-list').innerHTML =
+    '<div class="suite-loading">Loading suites and flows from Autosana…</div>';
+  try {
+    const data = await fetch('/api/suites-with-flows').then(r => r.json());
     renderSuites(data);
-  } catch(err){
-    document.getElementById('suite-list').innerHTML=`<div class="suite-loading" style="color:var(--red)">Failed to load: ${esc(String(err))}</div>`;
+  } catch (err) {
+    document.getElementById('suite-list').innerHTML =
+      `<div class="suite-loading" style="color:var(--red)">Failed to load: ${esc(String(err))}</div>`;
   }
 }
 
-// Environment
-document.querySelectorAll('.env-btn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.env-btn').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active'); currentEnv=btn.dataset.env;
+// Environment toggle
+document.querySelectorAll('.env-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.env-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentEnv = btn.dataset.env;
   });
 });
 
-// Run
-document.getElementById('run-btn').addEventListener('click', async ()=>{
+// Run button
+document.getElementById('run-btn').addEventListener('click', async () => {
   const suiteIds = [...selectedSuites.keys()];
   const resultEl = document.getElementById('run-result');
   const btn      = document.getElementById('run-btn');
-  btn.disabled=true; btn.textContent='⏳ Triggering…'; resultEl.style.display='none';
+  btn.disabled = true; btn.textContent = '⏳ Triggering…'; resultEl.style.display = 'none';
 
-  try{
-    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,suite_ids:suiteIds})});
+  try {
+    const res  = await fetch('/api/run', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ environment: currentEnv, suite_ids: suiteIds }),
+    });
     const data = await res.json();
-    if(data.ok){
-      const suiteNames = suiteIds.map(id=>selectedSuites.get(id)).join(', ');
-      resultEl.innerHTML=
-        `<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} triggered on <strong>${currentEnv}</strong></div>`+
-        `<div class="res-label" style="margin-top:6px">Suite(s): ${esc(suiteNames)}</div>`+
+    if (data.ok) {
+      const suiteNames = suiteIds.map(id => selectedSuites.get(id)).join(', ');
+      resultEl.innerHTML =
+        `<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} triggered on <strong>${currentEnv}</strong></div>` +
+        `<div class="res-label" style="margin-top:6px">Suite(s): ${esc(suiteNames)}</div>` +
         `<div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
     } else {
-      resultEl.innerHTML=`<div class="res-error">❌ ${esc(data.error)}</div>`;
+      resultEl.innerHTML = `<div class="res-error">❌ ${esc(data.error)}</div>`;
     }
-    resultEl.style.display='block';
-  } catch(err){
-    resultEl.innerHTML=`<div class="res-error">❌ ${esc(String(err))}</div>`;
-    resultEl.style.display='block';
+    resultEl.style.display = 'block';
+  } catch (err) {
+    resultEl.innerHTML = `<div class="res-error">❌ ${esc(String(err))}</div>`;
+    resultEl.style.display = 'block';
   }
   updateRunBtn();
 });
 
-// Refresh
-document.getElementById('refresh-btn').addEventListener('click', async()=>{
-  selectedSuites.clear(); updateRunBtn();
-  await fetch('/api/refresh-flows',{method:'POST'});
+// Refresh flows
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  selectedSuites.clear();
+  updateRunBtn();
+  await fetch('/api/refresh-flows', { method: 'POST' });
   loadSuites();
 });
 </script>
