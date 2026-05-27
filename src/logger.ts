@@ -1,9 +1,40 @@
+import fs   from 'fs';
+import path from 'path';
 import { Response } from 'express';
 import { ActivityEvent, ActivityLevel } from './types';
 
 // ── In-memory ring buffer (last 500 events) ───────────────────────────────────
 const MAX_EVENTS = 500;
 const events: ActivityEvent[] = [];
+
+// ── File persistence ──────────────────────────────────────────────────────────
+const DATA_DIR    = process.env['DATA_DIR'] ?? '/app/data';
+const EVENTS_PATH = path.join(DATA_DIR, 'events.json');
+
+function loadFromDisk(): void {
+  try {
+    if (!fs.existsSync(EVENTS_PATH)) return;
+    const raw: ActivityEvent[] = JSON.parse(fs.readFileSync(EVENTS_PATH, 'utf-8'));
+    // Keep only the most recent MAX_EVENTS entries
+    const slice = raw.slice(-MAX_EVENTS);
+    events.push(...slice);
+    console.log(`[logger] Restored ${events.length} event(s) from ${EVENTS_PATH}`);
+  } catch (err) {
+    console.warn('[logger] Could not restore events:', err);
+  }
+}
+
+function saveToDisk(): void {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(EVENTS_PATH, JSON.stringify(events, null, 2));
+  } catch (err) {
+    console.warn('[logger] Could not persist events:', err);
+  }
+}
+
+// Restore previous session's events at startup
+loadFromDisk();
 
 // ── SSE subscriber set ────────────────────────────────────────────────────────
 const subscribers = new Set<Response>();
@@ -41,6 +72,9 @@ export function log(
   // ring buffer
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
+
+  // persist to volume so history survives redeploys
+  saveToDisk();
 
   // broadcast to SSE subscribers
   const data = `data: ${JSON.stringify(event)}\n\n`;
