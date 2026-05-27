@@ -233,34 +233,26 @@ document.querySelectorAll('.tab').forEach(tab => {
 // ── Activity log: ticket-grouped cards ───────────────────────────────────────
 const logEl = document.getElementById('log');
 const ticketCards = new Map(); // key → { card, listEl, countEl, summaryEl, statusEl, count, level }
-let lastSeenKey = null;
 
 // Priority order for log levels (higher = more severe)
 function levelPriority(l) { return {error:3,warning:2,success:1,info:0}[l]??0; }
 
 /**
  * Extract PAMENG ticket key from event.
- * Tries details fields first, then message text, then falls back to
- * lastSeenKey for "continuation" messages that logically follow a ticket handler.
+ * Only attributes an event to a ticket card when the key is explicitly
+ * present — in details fields or in the message text. Everything else
+ * goes to the System card.
  */
 function extractTicketKey(ev) {
   const d = ev.details ?? {};
-  const pamRe = /^[A-Z]+-\d+$/;
+  const pamRe = /^PAMENG-\d+$/;
 
-  if (d.key       && pamRe.test(d.key))         return d.key;
-  if (d.jiraKey   && pamRe.test(d.jiraKey))      return d.jiraKey;
-  if (d.triggeredBy && pamRe.test(d.triggeredBy)) return d.triggeredBy;
+  if (d.key        && pamRe.test(d.key))          return d.key;
+  if (d.jiraKey    && pamRe.test(d.jiraKey))       return d.jiraKey;
+  if (d.triggeredBy && pamRe.test(d.triggeredBy))  return d.triggeredBy;
 
-  const inMsg = (ev.message || '').match(/\b([A-Z]+-\d+)\b/);
-  if (inMsg) return inMsg[1];
-
-  // Continuation messages — inherit last seen key (they follow ticket handler logic)
-  const msg = ev.message || '';
-  const isContinuation =
-    /^Fetched \d+ existing flow/.test(msg) ||
-    /^(No existing flows matched|Best match ".+?" scored \d+%)/.test(msg) ||
-    /^Fallback match:/.test(msg);
-  if (isContinuation && lastSeenKey) return lastSeenKey;
+  const inMsg = (ev.message || '').match(/\bPAMENG-\d+\b/);
+  if (inMsg) return inMsg[0];
 
   return null; // system / server event
 }
@@ -526,7 +518,6 @@ function appendEvent(ev, isHistorical) {
 
   // Determine which ticket this event belongs to
   const key = extractTicketKey(ev);
-  if (key && key !== 'SYSTEM') lastSeenKey = key;
 
   // Convert to human-readable text (null = suppress)
   const text = prettify(ev.message, ev.details ?? {});
