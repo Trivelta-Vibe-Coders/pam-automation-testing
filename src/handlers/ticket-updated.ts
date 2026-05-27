@@ -37,16 +37,26 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   const statusChange = changelog.items.find(
     item => item.field === 'status' && item.toString !== null,
   );
-  if (!statusChange) return;
+  if (!statusChange) return; // non-status update (comment, field, etc.)
 
-  const newStatus = statusChange.toString!;
-  const env       = statusToEnvironment(newStatus);
+  const newStatus  = statusChange.toString!;
+  const fromStatus = statusChange.fromString ?? '?';
+  const env        = statusToEnvironment(newStatus);
 
-  if (!env) return; // not a trigger-worthy status
+  if (!env) {
+    // Status changed but it's not a trigger-worthy status — log it so
+    // the user can see what name came in and configure JIRA_STATUS_DEV /
+    // JIRA_STATUS_STG if needed.
+    logger.info(
+      `${key} status changed to "${newStatus}" (not a trigger status — configure JIRA_STATUS_DEV or JIRA_STATUS_STG to enable)`,
+      { key, fromStatus, toStatus: newStatus },
+    );
+    return;
+  }
 
   logger.info(
     `${key} moved to "${newStatus}" → triggering ${env} run`,
-    { key, fromStatus: statusChange.fromString, toStatus: newStatus },
+    { key, fromStatus, toStatus: newStatus },
   );
 
   // 1. Look up stored flow link

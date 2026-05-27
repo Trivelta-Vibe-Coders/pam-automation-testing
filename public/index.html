@@ -304,6 +304,11 @@ function prettify(msg, details) {
     return `Ticket moved to "${status}" — running tests on ${env}`;
   }
 
+  if (/status changed to ".+?" \(not a trigger/.test(msg)) {
+    const status = msg.match(/status changed to "([^"]+)"/)?.[1] ?? '?';
+    return `Status changed to "${status}" — not a configured trigger (check JIRA_STATUS_DEV / JIRA_STATUS_STG)`;
+  }
+
   if (/^Found stored flow link for/.test(msg)) {
     const name = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
     return `Found linked flow: "${name}"`;
