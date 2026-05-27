@@ -4,27 +4,26 @@
  * Watches for status transitions to "Dev" or "Stg" (configurable).
  * On match:
  *   1. Look up stored flow link for this ticket
- *   2. If found → trigger that specific flow's suite against the target environment
- *   3. If not found → fallback: run semantic match against all flows, trigger best match
+ *   2. If not found → run the full ticket-created pipeline first
+ *      (find or create the Autosana flow, store the link)
+ *   3. Trigger the relevant suite against the target environment
  *   4. Post Jira comment with batch_id so team can track the run
  */
 import { JiraWebhookPayload } from '../types';
 import * as logger from '../logger';
 import * as jiraClient from '../services/jira';
-import * as autosana from '../services/autosana';
-import * as matcher from '../services/flow-matcher';
 import * as flowLinks from '../services/flow-links';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
+import { handleTicketCreated } from './ticket-created';
 import { config } from '../config';
 
 // Map Jira status names → Autosana environments
 function statusToEnvironment(statusName: string): TriggerEnvironment | null {
-  if (statusName === config.jiraStatusDev)                         return 'dev';
-  if (statusName === config.jiraStatusStg)                         return 'staging';
-  // fuzzy fallbacks
-  if (/^dev$/i.test(statusName))                                   return 'dev';
-  if (/^(stg|staging|stage)$/i.test(statusName))                  return 'staging';
+  if (statusName === config.jiraStatusDev)          return 'dev';
+  if (statusName === config.jiraStatusStg)          return 'staging';
+  if (/^dev$/i.test(statusName))                    return 'dev';
+  if (/^(stg|staging|stage)$/i.test(statusName))   return 'staging';
   return null;
 }
 
@@ -32,8 +31,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   const { issue, changelog } = payload;
   if (!changelog?.items?.length) return;
 
-  const key    = issue.key;
-  const fields = issue.fields;
+  const key = issue.key;
 
   // Look for a status change
   const statusChange = changelog.items.find(
@@ -44,96 +42,38 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   const newStatus = statusChange.toString!;
   const env       = statusToEnvironment(newStatus);
 
-  if (!env) {
-    // Not a trigger-worthy status change — ignore silently
-    return;
-  }
+  if (!env) return; // not a trigger-worthy status
 
   logger.info(
     `${key} moved to "${newStatus}" → triggering ${env} run`,
     { key, fromStatus: statusChange.fromString, toStatus: newStatus },
   );
 
-  // 1. Look up stored link
-  const link = flowLinks.getLink(key);
-  let suiteIds: string[] | undefined;
+  // 1. Look up stored flow link
+  let link = flowLinks.getLink(key);
 
   if (link) {
     logger.info(`Found stored flow link for ${key}: "${link.flowName}"`, {
       flowId:  link.flowId,
       suiteId: link.suiteId,
     });
-    suiteIds = [link.suiteId];
   } else {
-    logger.warn(`No stored flow link for ${key} — searching Autosana`);
+    // 2. No stored link — run the full ticket-created pipeline:
+    //    finds or creates the Autosana flow and stores the link
+    logger.info(
+      `No flow setup found for ${key} — running full ticket setup before triggering`,
+      { key },
+    );
+    await handleTicketCreated(issue);
 
-    let allFlows: Awaited<ReturnType<typeof autosana.listAllPamFlows>> = [];
-    try {
-      allFlows = await autosana.listAllPamFlows();
-    } catch (err) {
-      logger.error(`Failed to fetch Autosana flows for ${key}`, { error: String(err) });
-    }
-
-    // 2. Check Autosana for a flow created for this ticket (name starts with "KEY:")
-    const ticketFlow = allFlows.find(f => f.name.startsWith(`${key}:`));
-
-    if (ticketFlow) {
-      logger.info(
-        `Found Autosana flow for ${key}: "${ticketFlow.name}"`,
-        { flowId: ticketFlow.id, suiteId: ticketFlow.suite_id },
-      );
-      suiteIds = [ticketFlow.suite_id];
-      // Restore the link so future transitions skip this lookup
-      flowLinks.setLink({
-        jiraKey:   key,
-        flowId:    ticketFlow.id,
-        flowName:  ticketFlow.name,
-        suiteId:   ticketFlow.suite_id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    } else if (allFlows.length > 0) {
-      // 3. Semantic match fallback
-      logger.warn(`No flow named "${key}:*" in Autosana — running semantic match`);
-      try {
-        const ticket: matcher.TicketContext = {
-          key,
-          summary:     fields.summary,
-          description: matcher.adfToPlainText(fields.description ?? undefined),
-          labels:      fields.labels ?? [],
-          components:  (fields.components ?? []).map(c => c.name),
-          issueType:   fields.issuetype?.name ?? 'Story',
-          priority:    fields.priority?.name  ?? 'Medium',
-        };
-        const matches = await matcher.matchFlows(ticket, allFlows);
-        const best    = matches[0];
-
-        if (best && best.score >= config.matchThreshold) {
-          suiteIds = [best.flow.suite_id];
-          logger.info(
-            `Fallback match: "${best.flow.name}" (score ${best.score}%) → triggering suite`,
-            { flowId: best.flow.id, suiteId: best.flow.suite_id },
-          );
-          flowLinks.setLink({
-            jiraKey:   key,
-            flowId:    best.flow.id,
-            flowName:  best.flow.name,
-            suiteId:   best.flow.suite_id,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
-          logger.warn(
-            `No high-confidence flow match for ${key} — triggering all PAM suites as fallback`,
-          );
-        }
-      } catch (err) {
-        logger.error(`Semantic match fallback failed for ${key}`, { error: String(err) });
-      }
-    } else {
-      logger.warn(`Could not fetch flows from Autosana — triggering all PAM suites as fallback`);
+    // Re-read; handleTicketCreated will have stored it if successful
+    link = flowLinks.getLink(key);
+    if (!link) {
+      logger.warn(`Flow setup completed but no link stored for ${key} — triggering all PAM suites`);
     }
   }
+
+  const suiteIds = link ? [link.suiteId] : undefined;
 
   // 3. Trigger
   let result: Awaited<ReturnType<typeof triggerFlows>>;
@@ -148,7 +88,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
         `Error: ${String(err).slice(0, 200)}\n` +
         `Please trigger manually via GitHub Actions.`,
       );
-    } catch { /* ignore comment failure */ }
+    } catch { /* ignore */ }
     return;
   }
 
