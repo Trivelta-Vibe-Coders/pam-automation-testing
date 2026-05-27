@@ -8,6 +8,7 @@
     :root {
       --bg:        #0f1117;
       --bg2:       #1a1d27;
+      --bg3:       #222538;
       --border:    #2d3148;
       --text:      #e2e8f0;
       --muted:     #64748b;
@@ -16,443 +17,366 @@
       --red:       #ef4444;
       --blue:      #3b82f6;
       --indigo:    #6366f1;
-      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
     }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      min-height: 100vh;
-    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,sans-serif; font-size:14px; min-height:100vh; display:flex; flex-direction:column; }
 
     /* ── Header ── */
-    header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg2);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
+    header { display:flex; align-items:center; gap:12px; padding:14px 24px; border-bottom:1px solid var(--border); background:var(--bg2); flex-shrink:0; }
+    .logo { font-size:18px; font-weight:700; letter-spacing:-0.5px; }
+    .logo span { color:var(--indigo); }
+    .status-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+    .status-dot.connected { background:var(--green); animation:pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .status-label { color:var(--muted); font-size:12px; }
+    .header-right { margin-left:auto; color:var(--muted); font-size:12px; }
 
-    .logo {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
+    /* ── Tabs ── */
+    .tab-bar { display:flex; border-bottom:1px solid var(--border); background:var(--bg2); padding:0 24px; gap:2px; flex-shrink:0; }
+    .tab { padding:10px 18px; font-size:13px; font-weight:500; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:color .15s,border-color .15s; user-select:none; }
+    .tab:hover { color:var(--text); }
+    .tab.active { color:var(--indigo); border-bottom-color:var(--indigo); }
 
-    .logo span { color: var(--indigo); }
+    /* ── Stats ── */
+    .stats { display:flex; gap:24px; padding:10px 24px; border-bottom:1px solid var(--border); background:var(--bg2); flex-shrink:0; }
+    .stat { display:flex; flex-direction:column; gap:2px; }
+    .stat-value { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .stat-label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+    .c-green{color:var(--green)} .c-yellow{color:var(--yellow)} .c-red{color:var(--red)} .c-blue{color:var(--blue)}
 
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--muted);
-      animation: none;
-      flex-shrink: 0;
-    }
-    .status-dot.connected {
-      background: var(--green);
-      animation: pulse 2s ease-in-out infinite;
-    }
+    /* ── Panels ── */
+    .panel { display:none; flex:1; overflow:hidden; min-height:0; }
+    .panel.active { display:flex; }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.4; }
-    }
+    /* ── Activity Log ── */
+    #panel-log { flex-direction:row; }
+    .log-section { display:flex; flex-direction:column; flex:1; overflow:hidden; border-right:1px solid var(--border); }
+    .panel-header { padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
+    .panel-header .count { background:var(--border); color:var(--text); border-radius:999px; padding:1px 7px; font-size:10px; }
+    .auto-scroll-toggle { margin-left:auto; display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--muted); font-size:11px; }
+    #log { flex:1; overflow-y:auto; padding:6px 0; font-family:var(--font-mono); font-size:12px; }
+    .event { display:grid; grid-template-columns:140px 58px 1fr; gap:0 8px; padding:4px 16px; align-items:start; }
+    .event:hover { background:var(--bg2); }
+    .event-time { color:var(--muted); white-space:nowrap; }
+    .badge { font-size:10px; font-weight:700; padding:1px 5px; border-radius:3px; text-transform:uppercase; text-align:center; white-space:nowrap; }
+    .badge-info{background:#1e3a5f;color:var(--blue)} .badge-success{background:#14532d;color:var(--green)}
+    .badge-warning{background:#422006;color:var(--yellow)} .badge-error{background:#450a0a;color:var(--red)}
+    .event-msg { word-break:break-word; }
+    .has-details .event-msg { cursor:pointer; }
+    .has-details .event-msg::after { content:' ▸'; color:var(--muted); font-size:10px; }
+    .event.expanded .has-details .event-msg::after { content:' ▾'; }
+    .event-details { grid-column:3; margin-top:3px; padding:6px 10px; background:var(--bg); border:1px solid var(--border); border-radius:4px; font-size:11px; color:var(--muted); white-space:pre-wrap; word-break:break-all; display:none; }
+    .event.expanded .event-details { display:block; }
+    .links-section { width:280px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
+    #links-list { flex:1; overflow-y:auto; padding:8px; }
+    .link-card { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12px; }
+    .link-jira { font-weight:700; color:var(--indigo); font-size:13px; margin-bottom:3px; }
+    .link-flow { color:var(--text); margin-bottom:4px; word-break:break-word; }
+    .link-meta { color:var(--muted); font-size:11px; }
+    .empty-state { color:var(--muted); font-size:12px; text-align:center; padding:32px 16px; line-height:1.6; }
 
-    .status-label { color: var(--muted); font-size: 12px; }
+    /* ── Test Runner ── */
+    #panel-runner { flex-direction:row; }
+    .runner-suites { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
 
-    .header-right {
-      margin-left: auto;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
+    .suite-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .suite-header { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
+    .suite-header:hover { background:var(--bg3); }
+    .suite-check { width:16px; height:16px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; }
+    .suite-name { font-weight:600; font-size:13px; flex:1; }
+    .suite-badge { background:var(--border); color:var(--muted); border-radius:999px; padding:2px 8px; font-size:11px; }
+    .suite-chevron { color:var(--muted); font-size:12px; transition:transform .2s; }
+    .suite-card.collapsed .suite-chevron { transform:rotate(-90deg); }
+    .flows-list { }
+    .suite-card.collapsed .flows-list { display:none; }
+    .flow-row { display:flex; align-items:center; gap:10px; padding:8px 16px 8px 44px; border-bottom:1px solid var(--border); transition:background .1s; }
+    .flow-row:last-child { border-bottom:none; }
+    .flow-row:hover { background:var(--bg3); }
+    .flow-check { width:15px; height:15px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; }
+    .flow-name { font-size:13px; color:var(--text); flex:1; line-height:1.4; }
+    .suite-loading { padding:16px; color:var(--muted); font-size:12px; text-align:center; }
 
-    /* ── Stats bar ── */
-    .stats {
-      display: flex;
-      gap: 24px;
-      padding: 12px 24px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg2);
-    }
+    /* Runner controls sidebar */
+    .runner-controls { width:260px; flex-shrink:0; border-left:1px solid var(--border); display:flex; flex-direction:column; padding:20px 16px; gap:16px; background:var(--bg2); overflow-y:auto; }
+    .ctrl-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin-bottom:6px; display:block; }
+    .env-toggle { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+    .env-btn { flex:1; padding:8px; text-align:center; font-size:13px; font-weight:500; cursor:pointer; color:var(--muted); border:none; background:none; transition:background .15s,color .15s; }
+    .env-btn.active { background:var(--indigo); color:#fff; }
+    .run-btn { width:100%; padding:12px; background:var(--indigo); color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+    .run-btn:hover:not(:disabled) { opacity:.85; }
+    .run-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .selection-summary { font-size:12px; color:var(--muted); text-align:center; }
+    .run-result { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; font-size:12px; line-height:1.6; }
+    .res-label { color:var(--muted); margin-bottom:2px; }
+    .res-value { font-family:var(--font-mono); color:var(--green); word-break:break-all; font-size:11px; }
+    .res-error { color:var(--red); }
+    .ctrl-divider { border:none; border-top:1px solid var(--border); }
+    .refresh-btn { width:100%; padding:8px; background:none; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:12px; cursor:pointer; transition:border-color .15s,color .15s; }
+    .refresh-btn:hover { border-color:var(--indigo); color:var(--indigo); }
 
-    .stat {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .stat-value {
-      font-size: 20px;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-
-    .c-green  { color: var(--green); }
-    .c-yellow { color: var(--yellow); }
-    .c-red    { color: var(--red); }
-    .c-blue   { color: var(--blue); }
-
-    /* ── Main layout ── */
-    main {
-      display: grid;
-      grid-template-columns: 1fr 320px;
-      height: calc(100vh - 120px);
-    }
-
-    /* ── Event log ── */
-    .log-panel {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      border-right: 1px solid var(--border);
-    }
-
-    .panel-header {
-      padding: 12px 16px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--muted);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .panel-header .count {
-      background: var(--border);
-      color: var(--text);
-      border-radius: 999px;
-      padding: 1px 7px;
-      font-size: 10px;
-    }
-
-    .auto-scroll-toggle {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 11px;
-    }
-
-    .auto-scroll-toggle input { cursor: pointer; }
-
-    #log {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 0;
-      font-family: var(--font-mono);
-      font-size: 12px;
-    }
-
-    .event {
-      display: grid;
-      grid-template-columns: 160px 60px 1fr;
-      gap: 0 8px;
-      padding: 5px 16px;
-      border-bottom: 1px solid transparent;
-      transition: background 0.1s;
-      align-items: start;
-    }
-
-    .event:hover { background: var(--bg2); }
-
-    .event-time { color: var(--muted); white-space: nowrap; }
-
-    .badge {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 1px 5px;
-      border-radius: 3px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      white-space: nowrap;
-      text-align: center;
-    }
-
-    .badge-info    { background: #1e3a5f; color: var(--blue); }
-    .badge-success { background: #14532d; color: var(--green); }
-    .badge-warning { background: #422006; color: var(--yellow); }
-    .badge-error   { background: #450a0a; color: var(--red); }
-
-    .event-msg { word-break: break-word; }
-
-    .event-details {
-      grid-column: 3;
-      margin-top: 3px;
-      padding: 6px 10px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      font-size: 11px;
-      color: var(--muted);
-      white-space: pre-wrap;
-      word-break: break-all;
-      display: none;
-    }
-
-    .event.expanded .event-details { display: block; }
-    .event-msg { cursor: pointer; }
-    .has-details .event-msg::after {
-      content: ' ▸';
-      color: var(--muted);
-      font-size: 10px;
-    }
-    .event.expanded .has-details .event-msg::after { content: ' ▾'; }
-
-    /* ── Side panel (links) ── */
-    .side-panel {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-
-    #links-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-    }
-
-    .link-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px 12px;
-      margin-bottom: 8px;
-      font-size: 12px;
-    }
-
-    .link-jira {
-      font-weight: 700;
-      color: var(--indigo);
-      font-size: 13px;
-      margin-bottom: 3px;
-    }
-
-    .link-flow { color: var(--text); margin-bottom: 4px; word-break: break-word; }
-    .link-meta { color: var(--muted); font-size: 11px; }
-
-    .empty-state {
-      color: var(--muted);
-      font-size: 12px;
-      text-align: center;
-      padding: 32px 16px;
-    }
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
   </style>
 </head>
 <body>
-  <header>
-    <div class="logo">PAM <span>QA Agent</span></div>
-    <div class="status-dot" id="dot"></div>
-    <div class="status-label" id="conn-label">Connecting…</div>
-    <div class="header-right">
-      <span style="color:var(--muted);font-size:12px;" id="uptime"></span>
-    </div>
-  </header>
 
-  <div class="stats">
-    <div class="stat">
-      <div class="stat-value c-blue"  id="cnt-total">0</div>
-      <div class="stat-label">Total Events</div>
+<header>
+  <div class="logo">PAM <span>QA Agent</span></div>
+  <div class="status-dot" id="dot"></div>
+  <div class="status-label" id="conn-label">Connecting…</div>
+  <div class="header-right" id="uptime"></div>
+</header>
+
+<div class="tab-bar">
+  <div class="tab active" data-tab="log">Activity Log</div>
+  <div class="tab" data-tab="runner">Test Runner</div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-value c-blue" id="cnt-total">0</div><div class="stat-label">Events</div></div>
+  <div class="stat"><div class="stat-value c-green" id="cnt-success">0</div><div class="stat-label">Success</div></div>
+  <div class="stat"><div class="stat-value c-yellow" id="cnt-warning">0</div><div class="stat-label">Warnings</div></div>
+  <div class="stat"><div class="stat-value c-red" id="cnt-error">0</div><div class="stat-label">Errors</div></div>
+</div>
+
+<!-- Activity Log -->
+<div class="panel active" id="panel-log">
+  <div class="log-section">
+    <div class="panel-header">
+      Activity Log <span class="count" id="event-count">0</span>
+      <label class="auto-scroll-toggle"><input type="checkbox" id="auto-scroll" checked /> Auto-scroll</label>
     </div>
-    <div class="stat">
-      <div class="stat-value c-green"  id="cnt-success">0</div>
-      <div class="stat-label">Success</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value c-yellow" id="cnt-warning">0</div>
-      <div class="stat-label">Warnings</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value c-red"    id="cnt-error">0</div>
-      <div class="stat-label">Errors</div>
-    </div>
+    <div id="log"></div>
   </div>
+  <div class="links-section">
+    <div class="panel-header">Flow Links <span class="count" id="links-count">0</span></div>
+    <div id="links-list"><div class="empty-state">No flow links yet.<br/>Links appear when tickets are processed.</div></div>
+  </div>
+</div>
 
-  <main>
-    <div class="log-panel">
-      <div class="panel-header">
-        Activity Log
-        <span class="count" id="event-count">0</span>
-        <label class="auto-scroll-toggle">
-          <input type="checkbox" id="auto-scroll" checked />
-          Auto-scroll
-        </label>
-      </div>
-      <div id="log"></div>
-    </div>
-
-    <div class="side-panel">
-      <div class="panel-header">
-        Flow Links
-        <span class="count" id="links-count">0</span>
-      </div>
-      <div id="links-list">
-        <div class="empty-state">No flow links yet.<br/>Links appear when tickets are processed.</div>
+<!-- Test Runner -->
+<div class="panel" id="panel-runner">
+  <div class="runner-suites" id="suite-list">
+    <div class="suite-loading">Click the Test Runner tab to load suites.</div>
+  </div>
+  <div class="runner-controls">
+    <div>
+      <span class="ctrl-label">Environment</span>
+      <div class="env-toggle">
+        <button class="env-btn active" data-env="staging">Staging</button>
+        <button class="env-btn" data-env="dev">Dev</button>
       </div>
     </div>
-  </main>
+    <div>
+      <span class="ctrl-label">Selection</span>
+      <div class="selection-summary" id="sel-summary">0 flows selected</div>
+    </div>
+    <button class="run-btn" id="run-btn" disabled>▶ Run Selected</button>
+    <div id="run-result" style="display:none" class="run-result"></div>
+    <hr class="ctrl-divider" />
+    <button class="refresh-btn" id="refresh-btn">↺ Refresh Flows</button>
+  </div>
+</div>
 
-  <script>
-    const log         = document.getElementById('log');
-    const dot         = document.getElementById('dot');
-    const connLabel   = document.getElementById('conn-label');
-    const eventCount  = document.getElementById('event-count');
-    const linksCount  = document.getElementById('links-count');
-    const linksList   = document.getElementById('links-list');
-    const autoScroll  = document.getElementById('auto-scroll');
-    const cntTotal    = document.getElementById('cnt-total');
-    const cntSuccess  = document.getElementById('cnt-success');
-    const cntWarning  = document.getElementById('cnt-warning');
-    const cntError    = document.getElementById('cnt-error');
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let totalCount=0, successCount=0, warningCount=0, errorCount=0;
+const selectedFlows = new Map(); // flowId → {flowName, suiteId, suiteName}
+let currentEnv = 'staging';
+let suitesLoaded = false;
 
-    let totalCount = 0, successCount = 0, warningCount = 0, errorCount = 0;
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtTime(iso){ const d=new Date(iso); return d.toLocaleTimeString('en-US',{hour12:false})+'.'+String(d.getMilliseconds()).padStart(3,'0'); }
 
-    // ── Formatting ──────────────────────────────────────────────────────────
-    function fmtTime(iso) {
-      const d = new Date(iso);
-      return d.toLocaleTimeString('en-US', { hour12: false }) + '.' +
-             String(d.getMilliseconds()).padStart(3, '0');
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab==='runner' && !suitesLoaded) loadSuites();
+  });
+});
+
+// ── Activity log ──────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function appendEvent(ev) {
+  totalCount++;
+  if(ev.level==='success') successCount++;
+  if(ev.level==='warning') warningCount++;
+  if(ev.level==='error')   errorCount++;
+  document.getElementById('cnt-total').textContent   = totalCount;
+  document.getElementById('cnt-success').textContent = successCount;
+  document.getElementById('cnt-warning').textContent = warningCount;
+  document.getElementById('cnt-error').textContent   = errorCount;
+  document.getElementById('event-count').textContent = totalCount;
+
+  const bCls = {info:'badge-info',success:'badge-success',warning:'badge-warning',error:'badge-error'};
+  const bLbl = {info:'INFO',success:'OK',warning:'WARN',error:'ERR'};
+  const hasD = ev.details && Object.keys(ev.details).length>0;
+  const row  = document.createElement('div');
+  row.className = 'event'+(hasD?' has-details':'');
+  row.innerHTML = `<span class="event-time">${fmtTime(ev.timestamp)}</span><span class="badge ${bCls[ev.level]||'badge-info'}">${bLbl[ev.level]||ev.level}</span><span class="event-msg">${esc(ev.message)}</span>${hasD?`<pre class="event-details">${esc(JSON.stringify(ev.details,null,2))}</pre>`:''}`;
+  if(hasD) row.querySelector('.event-msg').addEventListener('click',()=>row.classList.toggle('expanded'));
+  logEl.appendChild(row);
+  if(document.getElementById('auto-scroll').checked) row.scrollIntoView({block:'end',behavior:'smooth'});
+}
+
+// ── Flow links ────────────────────────────────────────────────────────────────
+async function loadLinks() {
+  try {
+    const links = await fetch('/api/links').then(r=>r.json());
+    document.getElementById('links-count').textContent = links.length;
+    if(!links.length) return;
+    const el = document.getElementById('links-list');
+    el.innerHTML='';
+    for(const l of links){
+      const c=document.createElement('div'); c.className='link-card';
+      c.innerHTML=`<div class="link-jira">${esc(l.jiraKey)}</div><div class="link-flow">${esc(l.flowName)}</div><div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>`;
+      el.appendChild(c);
     }
+  } catch{}
+}
 
-    function fmtBadge(level) {
-      const map = { info: 'badge-info', success: 'badge-success', warning: 'badge-warning', error: 'badge-error' };
-      const cls = map[level] || 'badge-info';
-      const lbl = { info: 'INFO', success: 'OK', warning: 'WARN', error: 'ERR' }[level] || level;
-      return `<span class="badge ${cls}">${lbl}</span>`;
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen = () => { document.getElementById('dot').classList.add('connected'); document.getElementById('conn-label').textContent='Live'; loadLinks(); };
+  es.onmessage = e => { try{ const ev=JSON.parse(e.data); appendEvent(ev); if(ev.message&&(ev.message.includes('flow')||ev.message.includes('Flow'))) loadLinks(); }catch{} };
+  es.onerror = () => { document.getElementById('dot').classList.remove('connected'); document.getElementById('conn-label').textContent='Reconnecting…'; es.close(); setTimeout(connect,3000); };
+}
+connect();
+
+// ── Uptime ────────────────────────────────────────────────────────────────────
+async function refreshUptime() {
+  try{ const h=await fetch('/health').then(r=>r.json()); const s=h.uptime; document.getElementById('uptime').textContent=`Up ${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s`; }catch{ document.getElementById('uptime').textContent=''; }
+}
+refreshUptime(); setInterval(refreshUptime,10000);
+
+// ── Runner ────────────────────────────────────────────────────────────────────
+function updateRunBtn() {
+  const n = selectedFlows.size;
+  document.getElementById('sel-summary').textContent = n===0?'0 flows selected':`${n} flow${n===1?'':'s'} selected`;
+  const btn = document.getElementById('run-btn');
+  btn.textContent = n===0?'▶ Run Selected':`▶ Run ${n} Flow${n===1?'':'s'} in Parallel`;
+  btn.disabled = n===0;
+}
+
+function updateSuiteCheckbox(suiteId) {
+  const cbs   = [...document.querySelectorAll(`.flow-check[data-suite="${suiteId}"]`)];
+  const n     = cbs.filter(c=>c.checked).length;
+  const sCb   = document.querySelector(`.suite-check[data-suite="${suiteId}"]`);
+  if(!sCb) return;
+  sCb.checked = n===cbs.length && cbs.length>0;
+  sCb.indeterminate = n>0 && n<cbs.length;
+}
+
+function setSuiteCheck(suiteId, checked) {
+  document.querySelectorAll(`.flow-check[data-suite="${suiteId}"]`).forEach(cb=>{
+    cb.checked = checked;
+    if(checked) selectedFlows.set(cb.dataset.flow,{flowName:cb.dataset.name,suiteId,suiteName:cb.dataset.suitename});
+    else        selectedFlows.delete(cb.dataset.flow);
+  });
+  updateSuiteCheckbox(suiteId); updateRunBtn();
+}
+
+function renderSuites(data) {
+  suitesLoaded = true;
+  const container = document.getElementById('suite-list');
+  container.innerHTML='';
+  if(!data.length){ container.innerHTML='<div class="suite-loading">No suites found.</div>'; return; }
+
+  for(const suite of data){
+    const card = document.createElement('div');
+    card.className='suite-card';
+    const fc = suite.flows.length;
+    card.innerHTML=`
+      <div class="suite-header">
+        <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" />
+        <span class="suite-name">${esc(suite.suite_name)}</span>
+        <span class="suite-badge">${fc} flow${fc===1?'':'s'}</span>
+        <span class="suite-chevron">▾</span>
+      </div>
+      <div class="flows-list">${
+        fc===0
+          ? '<div class="suite-loading">No flows yet.</div>'
+          : suite.flows.map(f=>`
+              <div class="flow-row">
+                <input type="checkbox" class="flow-check"
+                  data-flow="${esc(f.id)}" data-suite="${esc(suite.suite_id)}"
+                  data-name="${esc(f.name)}" data-suitename="${esc(suite.suite_name)}" />
+                <span class="flow-name">${esc(f.name)}</span>
+              </div>`).join('')
+      }</div>`;
+
+    card.querySelector('.suite-header').addEventListener('click', e=>{
+      if(e.target.classList.contains('suite-check')) return;
+      card.classList.toggle('collapsed');
+    });
+    card.querySelector('.suite-check').addEventListener('change', e=>setSuiteCheck(suite.suite_id, e.target.checked));
+    card.querySelectorAll('.flow-check').forEach(cb=>{
+      cb.addEventListener('change', e=>{
+        if(e.target.checked) selectedFlows.set(e.target.dataset.flow,{flowName:e.target.dataset.name,suiteId:e.target.dataset.suite,suiteName:e.target.dataset.suitename});
+        else                 selectedFlows.delete(e.target.dataset.flow);
+        updateSuiteCheckbox(e.target.dataset.suite);
+        updateRunBtn();
+      });
+    });
+    container.appendChild(card);
+  }
+  updateRunBtn();
+}
+
+async function loadSuites() {
+  suitesLoaded=false;
+  document.getElementById('suite-list').innerHTML='<div class="suite-loading">Loading suites and flows from Autosana…</div>';
+  try{
+    const data = await fetch('/api/suites-with-flows').then(r=>r.json());
+    renderSuites(data);
+  } catch(err){
+    document.getElementById('suite-list').innerHTML=`<div class="suite-loading" style="color:var(--red)">Failed to load: ${esc(String(err))}</div>`;
+  }
+}
+
+// Environment
+document.querySelectorAll('.env-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.env-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active'); currentEnv=btn.dataset.env;
+  });
+});
+
+// Run
+document.getElementById('run-btn').addEventListener('click', async ()=>{
+  const flowIds  = [...selectedFlows.keys()];
+  const suiteIds = [...new Set([...selectedFlows.values()].map(v=>v.suiteId))];
+  const resultEl = document.getElementById('run-result');
+  const btn      = document.getElementById('run-btn');
+  btn.disabled=true; btn.textContent='⏳ Triggering…'; resultEl.style.display='none';
+
+  try{
+    const res  = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({environment:currentEnv,flow_ids:flowIds,suite_ids:suiteIds})});
+    const data = await res.json();
+    if(data.ok){
+      resultEl.innerHTML=`<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} running in parallel on <strong>${currentEnv}</strong></div><div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
+    } else {
+      resultEl.innerHTML=`<div class="res-error">❌ ${esc(data.error)}</div>`;
     }
+    resultEl.style.display='block';
+  } catch(err){
+    resultEl.innerHTML=`<div class="res-error">❌ ${esc(String(err))}</div>`;
+    resultEl.style.display='block';
+  }
+  updateRunBtn();
+});
 
-    // ── Append event row ────────────────────────────────────────────────────
-    function appendEvent(ev) {
-      totalCount++;
-      if (ev.level === 'success') successCount++;
-      if (ev.level === 'warning') warningCount++;
-      if (ev.level === 'error')   errorCount++;
-
-      cntTotal.textContent   = totalCount;
-      cntSuccess.textContent = successCount;
-      cntWarning.textContent = warningCount;
-      cntError.textContent   = errorCount;
-      eventCount.textContent = totalCount;
-
-      const hasDetails = ev.details && Object.keys(ev.details).length > 0;
-
-      const row = document.createElement('div');
-      row.className = `event${hasDetails ? ' has-details' : ''}`;
-      row.innerHTML = `
-        <span class="event-time">${fmtTime(ev.timestamp)}</span>
-        ${fmtBadge(ev.level)}
-        <span class="event-msg">${escHtml(ev.message)}</span>
-        ${hasDetails ? `<pre class="event-details">${escHtml(JSON.stringify(ev.details, null, 2))}</pre>` : ''}
-      `;
-
-      if (hasDetails) {
-        row.querySelector('.event-msg').addEventListener('click', () => {
-          row.classList.toggle('expanded');
-        });
-      }
-
-      log.appendChild(row);
-
-      if (autoScroll.checked) {
-        row.scrollIntoView({ block: 'end', behavior: 'smooth' });
-      }
-    }
-
-    function escHtml(s) {
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    // ── Load flow links ──────────────────────────────────────────────────────
-    async function loadLinks() {
-      try {
-        const links = await fetch('/api/links').then(r => r.json());
-        linksCount.textContent = links.length;
-        if (!links.length) return;
-        linksList.innerHTML = '';
-        for (const l of links) {
-          const card = document.createElement('div');
-          card.className = 'link-card';
-          card.innerHTML = `
-            <div class="link-jira">${escHtml(l.jiraKey)}</div>
-            <div class="link-flow">${escHtml(l.flowName)}</div>
-            <div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>
-          `;
-          linksList.appendChild(card);
-        }
-      } catch { /* ignore */ }
-    }
-
-    // ── SSE connection ───────────────────────────────────────────────────────
-    function connect() {
-      const es = new EventSource('/events');
-
-      es.onopen = () => {
-        dot.classList.add('connected');
-        connLabel.textContent = 'Live';
-        loadLinks();
-      };
-
-      es.onmessage = (e) => {
-        try {
-          const ev = JSON.parse(e.data);
-          appendEvent(ev);
-          // Refresh links panel on flow-related events
-          if (ev.message && (ev.message.includes('flow') || ev.message.includes('Flow'))) {
-            loadLinks();
-          }
-        } catch { /* ignore malformed */ }
-      };
-
-      es.onerror = () => {
-        dot.classList.remove('connected');
-        connLabel.textContent = 'Reconnecting…';
-        es.close();
-        setTimeout(connect, 3000);
-      };
-    }
-
-    connect();
-
-    // ── Uptime display ───────────────────────────────────────────────────────
-    const uptimeEl = document.getElementById('uptime');
-    async function refreshUptime() {
-      try {
-        const h = await fetch('/health').then(r => r.json());
-        const s = h.uptime;
-        const hh = Math.floor(s / 3600);
-        const mm = Math.floor((s % 3600) / 60);
-        const ss = s % 60;
-        uptimeEl.textContent = `Up ${hh}h ${mm}m ${ss}s`;
-      } catch { uptimeEl.textContent = ''; }
-    }
-    refreshUptime();
-    setInterval(refreshUptime, 10_000);
-  </script>
+// Refresh
+document.getElementById('refresh-btn').addEventListener('click', async()=>{
+  selectedFlows.clear(); updateRunBtn();
+  await fetch('/api/refresh-flows',{method:'POST'});
+  loadSuites();
+});
+</script>
 </body>
 </html>

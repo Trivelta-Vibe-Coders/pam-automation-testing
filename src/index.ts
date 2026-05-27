@@ -15,6 +15,7 @@ import path from 'path';
 import { config } from './config';
 import * as logger from './logger';
 import { webhookRouter } from './routes/webhook';
+import { runnerRouter } from './routes/runner';
 import * as flowLinks from './services/flow-links';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
@@ -118,6 +119,9 @@ app.post('/api/register-webhook', async (req: Request, res: Response) => {
 
 // ── Webhook routes ────────────────────────────────────────────────────────────
 app.use('/webhook/jira', webhookRouter);
+
+// ── Runner routes ─────────────────────────────────────────────────────────────
+app.use('/api', runnerRouter);
 
 // ── 404 fallback → serve index.html (SPA-style) ───────────────────────────────
 app.use((_req: Request, res: Response) => {

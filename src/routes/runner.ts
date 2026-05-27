@@ -1,0 +1,104 @@
+/**
+ * Test Runner API
+ *
+ * GET  /api/suites-with-flows  → all 4 PAM suites + their flows (cached 5 min)
+ * POST /api/run                → trigger selected flows in parallel
+ */
+import { Router, Request, Response } from 'express';
+import { listFlows } from '../services/autosana';
+import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
+import * as logger from '../logger';
+import { config } from '../config';
+
+export const runnerRouter = Router();
+
+// ── Suite+flow cache ──────────────────────────────────────────────────────────
+
+interface FlowSummary {
+  id:   string;
+  name: string;
+}
+
+interface SuiteWithFlows {
+  suite_id:   string;
+  suite_name: string;
+  flows:      FlowSummary[];
+}
+
+let cache: SuiteWithFlows[] | null = null;
+let cacheExpiry = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getSuitesWithFlows(): Promise<SuiteWithFlows[]> {
+  if (cache && Date.now() < cacheExpiry) return cache;
+
+  const results = await Promise.all(
+    Object.entries(config.suites).map(async ([suiteName, suiteId]) => {
+      try {
+        const flows = await listFlows(suiteId);
+        return {
+          suite_id:   suiteId,
+          suite_name: suiteName,
+          flows: flows.map(f => ({ id: f.id, name: f.name })),
+        };
+      } catch (err) {
+        logger.warn(`Could not fetch flows for suite "${suiteName}"`, { error: String(err) });
+        return { suite_id: suiteId, suite_name: suiteName, flows: [] };
+      }
+    }),
+  );
+
+  // Preserve the canonical suite order
+  const order = Object.keys(config.suites);
+  results.sort((a, b) => order.indexOf(a.suite_name) - order.indexOf(b.suite_name));
+
+  cache      = results;
+  cacheExpiry = Date.now() + CACHE_TTL_MS;
+  return results;
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+runnerRouter.get('/suites-with-flows', async (_req: Request, res: Response) => {
+  try {
+    const data = await getSuitesWithFlows();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+runnerRouter.post('/run', async (req: Request, res: Response) => {
+  const environment  = (req.body?.environment ?? 'staging') as TriggerEnvironment;
+  const flowIds: string[] = req.body?.flow_ids ?? [];
+
+  if (!flowIds.length) {
+    res.status(400).json({ error: 'No flows selected' });
+    return;
+  }
+
+  // Derive which suite IDs are touched (for targeted suite triggering)
+  const suiteIds: string[] | undefined = req.body?.suite_ids?.length
+    ? req.body.suite_ids
+    : undefined;
+
+  logger.info(
+    `Manual run triggered: ${flowIds.length} flow(s) on ${environment}`,
+    { flowIds, environment },
+  );
+
+  try {
+    const result = await triggerFlows({ environment, suiteIds, flowIds });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    logger.error('Manual run failed', { error: String(err) });
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
+// Bust the cache (useful after flows are created/updated by the agent)
+runnerRouter.post('/refresh-flows', (_req: Request, res: Response) => {
+  cache      = null;
+  cacheExpiry = 0;
+  res.json({ ok: true });
+});
