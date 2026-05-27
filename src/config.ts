@@ -42,7 +42,7 @@ export const config = {
 
   // Anthropic
   anthropicApiKey: require_env('ANTHROPIC_API_KEY'),
-  claudeModel:     optional_env('CLAUDE_MODEL', 'claude-3-5-haiku-20241022'),
+  claudeModel:     optional_env('CLAUDE_MODEL', 'claude-haiku-4-5'),
 
   // Semantic match threshold (0–100)
   matchThreshold: parseInt(optional_env('MATCH_THRESHOLD', '70'), 10),
