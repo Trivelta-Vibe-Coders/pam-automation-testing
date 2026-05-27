@@ -310,7 +310,15 @@ function prettify(msg, details) {
   }
 
   if (/^No stored flow link for/.test(msg))
-    return 'No flow link found — running semantic search for best match';
+    return 'No flow link found — checking Autosana for existing flow';
+
+  if (/^Found Autosana flow for/.test(msg)) {
+    const name = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
+    return `Found existing Autosana flow: "${name}"`;
+  }
+
+  if (/^No flow named ".+:\*" in Autosana/.test(msg))
+    return 'No matching flow name in Autosana — running semantic search';
 
   if (/^Fallback match:/.test(msg)) {
     const name  = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';

@@ -63,49 +63,75 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
       flowId:  link.flowId,
       suiteId: link.suiteId,
     });
-    // Trigger just the relevant suite
     suiteIds = [link.suiteId];
   } else {
-    // 2. Fallback: semantic match
-    logger.warn(`No stored flow link for ${key} — running semantic match`);
-    try {
-      const ticket: matcher.TicketContext = {
-        key,
-        summary:     fields.summary,
-        description: matcher.adfToPlainText(fields.description ?? undefined),
-        labels:      fields.labels ?? [],
-        components:  (fields.components ?? []).map(c => c.name),
-        issueType:   fields.issuetype?.name ?? 'Story',
-        priority:    fields.priority?.name  ?? 'Medium',
-      };
-      const allFlows = await autosana.listAllPamFlows();
-      const matches  = await matcher.matchFlows(ticket, allFlows);
-      const best     = matches[0];
+    logger.warn(`No stored flow link for ${key} — searching Autosana`);
 
-      if (best && best.score >= config.matchThreshold) {
-        suiteIds = [best.flow.suite_id];
-        logger.info(
-          `Fallback match: "${best.flow.name}" (score ${best.score}%) → triggering suite`,
-          { flowId: best.flow.id, suiteId: best.flow.suite_id },
-        );
-        // Store link for future transitions
-        flowLinks.setLink({
-          jiraKey:   key,
-          flowId:    best.flow.id,
-          flowName:  best.flow.name,
-          suiteId:   best.flow.suite_id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        logger.warn(
-          `No high-confidence flow match for ${key} — triggering all PAM suites as fallback`,
-        );
-        // suiteIds stays undefined → triggerFlows will use all suites
-      }
+    let allFlows: Awaited<ReturnType<typeof autosana.listAllPamFlows>> = [];
+    try {
+      allFlows = await autosana.listAllPamFlows();
     } catch (err) {
-      logger.error(`Semantic match fallback failed for ${key}`, { error: String(err) });
-      // Still proceed with full-suite trigger rather than silently failing
+      logger.error(`Failed to fetch Autosana flows for ${key}`, { error: String(err) });
+    }
+
+    // 2. Check Autosana for a flow created for this ticket (name starts with "KEY:")
+    const ticketFlow = allFlows.find(f => f.name.startsWith(`${key}:`));
+
+    if (ticketFlow) {
+      logger.info(
+        `Found Autosana flow for ${key}: "${ticketFlow.name}"`,
+        { flowId: ticketFlow.id, suiteId: ticketFlow.suite_id },
+      );
+      suiteIds = [ticketFlow.suite_id];
+      // Restore the link so future transitions skip this lookup
+      flowLinks.setLink({
+        jiraKey:   key,
+        flowId:    ticketFlow.id,
+        flowName:  ticketFlow.name,
+        suiteId:   ticketFlow.suite_id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    } else if (allFlows.length > 0) {
+      // 3. Semantic match fallback
+      logger.warn(`No flow named "${key}:*" in Autosana — running semantic match`);
+      try {
+        const ticket: matcher.TicketContext = {
+          key,
+          summary:     fields.summary,
+          description: matcher.adfToPlainText(fields.description ?? undefined),
+          labels:      fields.labels ?? [],
+          components:  (fields.components ?? []).map(c => c.name),
+          issueType:   fields.issuetype?.name ?? 'Story',
+          priority:    fields.priority?.name  ?? 'Medium',
+        };
+        const matches = await matcher.matchFlows(ticket, allFlows);
+        const best    = matches[0];
+
+        if (best && best.score >= config.matchThreshold) {
+          suiteIds = [best.flow.suite_id];
+          logger.info(
+            `Fallback match: "${best.flow.name}" (score ${best.score}%) → triggering suite`,
+            { flowId: best.flow.id, suiteId: best.flow.suite_id },
+          );
+          flowLinks.setLink({
+            jiraKey:   key,
+            flowId:    best.flow.id,
+            flowName:  best.flow.name,
+            suiteId:   best.flow.suite_id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          logger.warn(
+            `No high-confidence flow match for ${key} — triggering all PAM suites as fallback`,
+          );
+        }
+      } catch (err) {
+        logger.error(`Semantic match fallback failed for ${key}`, { error: String(err) });
+      }
+    } else {
+      logger.warn(`Could not fetch flows from Autosana — triggering all PAM suites as fallback`);
     }
   }
 
