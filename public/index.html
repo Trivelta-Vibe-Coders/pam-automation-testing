@@ -95,7 +95,10 @@
     .tc-bullet-dot.warning { background:var(--yellow); }
     .tc-bullet-dot.error   { background:var(--red); }
 
-    .tc-bullet-text { flex:1; font-size:13px; line-height:1.5; color:var(--text); }
+    .tc-bullet-body { flex:1; min-width:0; }
+    .tc-bullet-text { display:block; font-size:13px; line-height:1.5; color:var(--text); }
+    .tc-bullet-detail { display:block; margin-top:3px; font-size:11px; font-family:var(--font-mono); color:var(--red); opacity:.85; word-break:break-word; white-space:pre-wrap; }
+    .tc-bullet-detail.warning { color:var(--yellow); }
     .tc-bullet-time { color:var(--muted); font-size:10px; font-family:var(--font-mono); flex-shrink:0; padding-top:3px; }
 
     /* ── Flow Links sidebar ── */
@@ -486,11 +489,15 @@ function addBullet(key, ev, text, isHistorical) {
   entry.countEl.textContent = entry.count;
 
   // Create bullet element
+  const errorDetail = ev.details?.error ? String(ev.details.error) : null;
   const li = document.createElement('li');
   li.className = 'tc-bullet';
   li.innerHTML =
     `<span class="tc-bullet-dot ${ev.level}"></span>` +
-    `<span class="tc-bullet-text">${esc(text)}</span>` +
+    `<span class="tc-bullet-body">` +
+      `<span class="tc-bullet-text">${esc(text)}</span>` +
+      (errorDetail ? `<span class="tc-bullet-detail ${ev.level}">${esc(errorDetail)}</span>` : '') +
+    `</span>` +
     `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
   entry.listEl.appendChild(li);
 
