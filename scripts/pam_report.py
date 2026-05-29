@@ -152,7 +152,7 @@ def classify_flows(suite_name, flows):
     prompt = CLASSIFY_PROMPT.format(suite_name=suite_name, flow_data=json.dumps(compact, indent=2))
     body = json.dumps({
         "model": "claude-sonnet-4-6",
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "messages": [{"role": "user", "content": prompt}]
     }).encode()
     req = urllib.request.Request(
@@ -161,8 +161,16 @@ def classify_flows(suite_name, flows):
                  "Content-Type": "application/json"},
         method="POST"
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:
         result = json.loads(r.read())
+
+    # Surface truncation early so we get a clear error instead of a JSONDecodeError
+    stop_reason = result.get("stop_reason", "")
+    if stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"Claude response was truncated (max_tokens reached). "
+            f"Flow count: {len(flows)}. Raise max_tokens or reduce flow batch size."
+        )
 
     raw = result["content"][0]["text"].strip()
     if raw.startswith("```"):
