@@ -76,6 +76,14 @@ app.get('/events', (req: Request, res: Response) => {
   });
 });
 
+// ── API: public config (safe, non-secret values used by the UI) ──────────────
+app.get('/api/config', (_req: Request, res: Response) => {
+  res.json({
+    jiraBaseUrl:    config.jiraBaseUrl,
+    autosanaAppUrl: config.autosanaAppUrl,
+  });
+});
+
 // ── API: stored flow links ───────────────────────────────────────────────────
 app.get('/api/links', (_req: Request, res: Response) => {
   res.json(flowLinks.getAllLinks());

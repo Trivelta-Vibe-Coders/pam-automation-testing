@@ -13,6 +13,7 @@ import { JiraWebhookPayload } from '../types';
 import * as logger from '../logger';
 import * as jiraClient from '../services/jira';
 import * as flowLinks from '../services/flow-links';
+import * as ticketStore from '../services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
 import { handleTicketCreated } from './ticket-created';
@@ -41,7 +42,11 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   const newStatus  = statusChange.toString!;
   const fromStatus = statusChange.fromString ?? '?';
-  const env        = statusToEnvironment(newStatus);
+
+  // Always persist the latest Jira status so the UI can group by Done etc.
+  ticketStore.updateTicketStatus(key, newStatus);
+
+  const env = statusToEnvironment(newStatus);
 
   if (!env) {
     // Status changed but it's not a trigger-worthy status — log it so

@@ -76,7 +76,10 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
 
       logger.success(
         `Flow "${targetFlowName}" updated to cover ${key}`,
-        { flowId: targetFlowId },
+        {
+          flowId:       targetFlowId,
+          autosanaUrl:  `${config.autosanaAppUrl}/suites/${targetSuiteId}`,
+        },
       );
     } else {
       // ── Create new flow ───────────────────────────────────────────────────
@@ -104,7 +107,11 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
 
       logger.success(
         `New flow "${targetFlowName}" created in suite "${suiteName}"`,
-        { flowId: targetFlowId, suiteId },
+        {
+          flowId:      targetFlowId,
+          suiteId,
+          autosanaUrl: `${config.autosanaAppUrl}/suites/${suiteId}`,
+        },
       );
     }
   } catch (err) {

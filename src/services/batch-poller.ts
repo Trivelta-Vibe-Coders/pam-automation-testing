@@ -116,7 +116,11 @@ export function startPolling(params: {
 
         try {
           await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment });
-          logger.success(`GitHub dispatch sent for "${suiteName}"`, { suiteId, flowCount: flows.length });
+          logger.success(`GitHub dispatch sent for "${suiteName}"`, {
+            suiteId,
+            flowCount: flows.length,
+            ...(group.url ? { runUrl: group.url } : {}),
+          });
           dispatched++;
         } catch (err) {
           logger.error(`Failed to dispatch "${suiteName}"`, { error: String(err) });

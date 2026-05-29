@@ -17,12 +17,13 @@ const STORE_PATH = path.join(DATA_DIR, 'tickets.json');
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TicketRecord {
-  key:       string;
-  title:     string;        // extracted from "Ticket created: …" message
-  level:     ActivityLevel; // highest severity seen on this ticket
-  events:    ActivityEvent[];
-  createdAt: string;
-  updatedAt: string;
+  key:        string;
+  title:      string;        // extracted from "Ticket created: …" message
+  level:      ActivityLevel; // highest severity seen on this ticket
+  jiraStatus: string;        // most-recent Jira status (e.g. "Dev", "Done")
+  events:     ActivityEvent[];
+  createdAt:  string;
+  updatedAt:  string;
 }
 
 // ── In-memory map ─────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ export function addEvent(key: string, event: ActivityEvent): void {
   const now = event.timestamp;
 
   if (!store.has(key)) {
-    store.set(key, { key, title: '', level: 'info', events: [], createdAt: now, updatedAt: now });
+    store.set(key, { key, title: '', level: 'info', jiraStatus: '', events: [], createdAt: now, updatedAt: now });
   }
 
   const rec = store.get(key)!;
@@ -107,6 +108,22 @@ export function addEvent(key: string, event: ActivityEvent): void {
   rec.events.push(event);
   rec.updatedAt = now;
 
+  saveToDisk();
+}
+
+/**
+ * Update the current Jira status for a ticket.
+ * Called whenever a status change webhook is received.
+ */
+export function updateTicketStatus(key: string, status: string): void {
+  if (!store.has(key)) {
+    const now = new Date().toISOString();
+    store.set(key, { key, title: '', level: 'info', jiraStatus: status, events: [], createdAt: now, updatedAt: now });
+  } else {
+    const rec = store.get(key)!;
+    rec.jiraStatus = status;
+    rec.updatedAt  = new Date().toISOString();
+  }
   saveToDisk();
 }
 

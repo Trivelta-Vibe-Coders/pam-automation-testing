@@ -14,6 +14,7 @@ export const config = {
   // Autosana
   autosanaApiKey:  require_env('AUTOSANA_API_KEY'),
   autosanaBaseUrl: optional_env('AUTOSANA_BASE_URL', 'https://backend.autosana.ai/api/v1'),
+  autosanaAppUrl:  optional_env('AUTOSANA_APP_URL',  'https://app.autosana.ai'),
 
   // Environment → Autosana app_id mapping
   autosanaEnvMap: {

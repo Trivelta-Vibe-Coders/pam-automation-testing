@@ -100,6 +100,25 @@
     .tc-bullet-detail { display:block; margin-top:3px; font-size:11px; font-family:var(--font-mono); color:var(--red); opacity:.85; word-break:break-word; white-space:pre-wrap; }
     .tc-bullet-detail.warning { color:var(--yellow); }
     .tc-bullet-time { color:var(--muted); font-size:10px; font-family:var(--font-mono); flex-shrink:0; padding-top:3px; }
+    .tc-bullet-link { font-size:11px; color:var(--indigo); text-decoration:none; margin-left:6px; opacity:.8; white-space:nowrap; }
+    .tc-bullet-link:hover { opacity:1; text-decoration:underline; }
+
+    /* Jira link on the ticket key */
+    .tc-key a { color:inherit; text-decoration:none; }
+    .tc-key a:hover { text-decoration:underline; }
+
+    /* ── Done section ── */
+    .tc-done-section { border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .tc-done-header { display:flex; align-items:center; gap:8px; padding:8px 14px; cursor:pointer; user-select:none; background:var(--bg2); }
+    .tc-done-header:hover { background:var(--bg3); }
+    .tc-done-icon { font-size:12px; color:var(--green); }
+    .tc-done-label { font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; flex:1; }
+    .tc-done-count { background:var(--border); color:var(--muted); border-radius:999px; padding:1px 7px; font-size:11px; }
+    .tc-done-chevron { color:var(--muted); font-size:11px; transition:transform .2s; }
+    .tc-done-section.collapsed .tc-done-chevron { transform:rotate(-90deg); }
+    .tc-done-section.collapsed #done-tickets { display:none; }
+    #done-tickets { display:flex; flex-direction:column; gap:8px; padding:8px; background:var(--bg); }
+    .tc-done-section { display:none; } /* hidden until there are done tickets */
 
     /* ── Flow Links sidebar ── */
     .links-section { width:280px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
@@ -179,7 +198,17 @@
       Activity Log <span class="count" id="event-count">0</span>
       <label class="auto-scroll-toggle"><input type="checkbox" id="auto-scroll" checked /> Auto-scroll</label>
     </div>
-    <div id="log"></div>
+    <div id="log">
+      <div class="tc-done-section collapsed" id="done-section">
+        <div class="tc-done-header" id="done-toggle">
+          <span class="tc-done-icon">✓</span>
+          <span class="tc-done-label">Done</span>
+          <span class="tc-done-count" id="done-count">0</span>
+          <span class="tc-done-chevron">▾</span>
+        </div>
+        <div id="done-tickets"></div>
+      </div>
+    </div>
   </div>
   <div class="links-section">
     <div class="panel-header">Flow Links <span class="count" id="links-count">0</span></div>
@@ -219,8 +248,20 @@ function fmtTime(iso) { const d=new Date(iso); return d.toLocaleTimeString('en-U
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
 const selectedSuites = new Map(); // suiteId → suiteName
-let currentEnv = 'staging';
+let currentEnv  = 'staging';
 let suitesLoaded = false;
+let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
+
+// ── Config ────────────────────────────────────────────────────────────────────
+async function loadConfig() {
+  try { appConfig = await fetch('/api/config').then(r => r.json()); } catch {}
+}
+
+// ── Done section toggle ───────────────────────────────────────────────────────
+let doneCount = 0;
+document.getElementById('done-toggle').addEventListener('click', () => {
+  document.getElementById('done-section').classList.toggle('collapsed');
+});
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
@@ -414,21 +455,34 @@ function prettify(msg, details) {
 }
 
 /**
- * Find or create a ticket card in the log. Ticket cards are inserted at the top;
- * the System card is always appended to the bottom.
+ * Find or create a ticket card in the log.
+ * All ticket cards start collapsed. System card is at the bottom.
+ * Done tickets go inside #done-tickets, active ones are prepended in #log.
  */
-function getOrCreateCard(key) {
+function getOrCreateCard(key, isDone) {
   if (ticketCards.has(key)) return ticketCards.get(key);
 
   const isSystem = (key === 'SYSTEM');
   const card = document.createElement('div');
-  card.className = 'tc-card' + (isSystem ? ' tc-system' : '');
+  card.className = 'tc-card collapsed' + (isSystem ? ' tc-system' : '');
   card.id = 'tc-' + key.replace(/[^a-zA-Z0-9-]/g, '_');
 
-  const displayKey = isSystem ? 'System' : esc(key);
+  // Build the key label — clickable Jira link for real ticket keys
+  let keyHtml;
+  if (isSystem) {
+    keyHtml = '<span class="tc-key">System</span>';
+  } else {
+    const jiraUrl = appConfig.jiraBaseUrl
+      ? `${appConfig.jiraBaseUrl}/browse/${key}`
+      : null;
+    keyHtml = jiraUrl
+      ? `<span class="tc-key"><a href="${esc(jiraUrl)}" target="_blank" rel="noopener" title="Open in Jira">${esc(key)}</a></span>`
+      : `<span class="tc-key">${esc(key)}</span>`;
+  }
+
   card.innerHTML = `
     <div class="tc-header">
-      <span class="tc-key">${displayKey}</span>
+      ${keyHtml}
       <span class="tc-summary"></span>
       <span class="tc-status"></span>
       <span class="tc-count">0</span>
@@ -438,18 +492,23 @@ function getOrCreateCard(key) {
       <ul class="tc-bullets"></ul>
     </div>`;
 
-  card.querySelector('.tc-header').addEventListener('click', () => {
+  // Toggle collapse on header click (but don't follow Jira link)
+  card.querySelector('.tc-header').addEventListener('click', e => {
+    if (e.target.closest('a')) return; // let the link open naturally
     card.classList.toggle('collapsed');
   });
 
   if (isSystem) {
-    card.classList.add('collapsed'); // system starts collapsed
     logEl.appendChild(card);
+  } else if (isDone) {
+    placeInDone(card);
   } else {
-    // Insert before System card (if present), otherwise prepend
-    const systemCard = document.getElementById('tc-SYSTEM');
-    if (systemCard) logEl.insertBefore(card, systemCard);
-    else            logEl.prepend(card);
+    // Prepend before the Done section (if present), otherwise before System
+    const doneSection  = document.getElementById('done-section');
+    const systemCard   = document.getElementById('tc-SYSTEM');
+    const anchor       = doneSection || systemCard;
+    if (anchor) logEl.insertBefore(card, anchor);
+    else        logEl.prepend(card);
   }
 
   const entry = {
@@ -460,11 +519,33 @@ function getOrCreateCard(key) {
     statusEl:  card.querySelector('.tc-status'),
     count: 0,
     level: 'info',
+    isDone: !!isDone,
   };
 
   ticketCards.set(key, entry);
   return entry;
 }
+
+/** Move an existing active card into the Done section. */
+function placeInDone(card) {
+  const doneEl = document.getElementById('done-tickets');
+  doneEl.appendChild(card);
+  // Show and increment Done section
+  const section = document.getElementById('done-section');
+  section.style.display = '';
+  doneCount++;
+  document.getElementById('done-count').textContent = doneCount;
+}
+
+/** Called when a live event signals the ticket moved to a done-like status. */
+function markTicketDone(key) {
+  const entry = ticketCards.get(key);
+  if (!entry || entry.isDone) return;
+  entry.isDone = true;
+  placeInDone(entry.card);
+}
+
+const DONE_STATUSES = /^(done|closed|resolved|complete|completed|rejected)$/i;
 
 /**
  * Add a bullet item to a ticket card, updating the card's status indicator.
@@ -496,14 +577,28 @@ function addBullet(key, ev, text, isHistorical) {
   entry.count++;
   entry.countEl.textContent = entry.count;
 
+  // Detect a Done-status transition so we can move the card
+  if (key !== 'SYSTEM') {
+    const toStatus = ev.details?.toStatus ? String(ev.details.toStatus) : null;
+    if (toStatus && DONE_STATUSES.test(toStatus)) markTicketDone(key);
+  }
+
   // Create bullet element
   const errorDetail = ev.details?.error ? String(ev.details.error) : null;
+  // Clickable Autosana link (flow creation or suite run completion)
+  const autosanaUrl = ev.details?.autosanaUrl ? String(ev.details.autosanaUrl)
+                    : ev.details?.runUrl       ? String(ev.details.runUrl)
+                    : null;
+  const linkHtml = autosanaUrl
+    ? ` <a class="tc-bullet-link" href="${esc(autosanaUrl)}" target="_blank" rel="noopener">↗ View in Autosana</a>`
+    : '';
+
   const li = document.createElement('li');
   li.className = 'tc-bullet';
   li.innerHTML =
     `<span class="tc-bullet-dot ${ev.level}"></span>` +
     `<span class="tc-bullet-body">` +
-      `<span class="tc-bullet-text">${esc(text)}</span>` +
+      `<span class="tc-bullet-text">${esc(text)}${linkHtml}</span>` +
       (errorDetail ? `<span class="tc-bullet-detail ${ev.level}">${esc(errorDetail)}</span>` : '') +
     `</span>` +
     `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
@@ -557,10 +652,16 @@ async function loadTickets() {
   try {
     const tickets = await fetch('/api/tickets').then(r => r.json());
     for (const ticket of tickets) {
-      // Skip if a live SSE event already created this card
-      if (ticketCards.has(ticket.key)) continue;
+      const isDone = ticket.jiraStatus && DONE_STATUSES.test(ticket.jiraStatus);
 
-      const entry = getOrCreateCard(ticket.key);
+      // If a live SSE event already created the card but the persistent record
+      // says it's Done, make sure it ends up in the right section.
+      if (ticketCards.has(ticket.key)) {
+        if (isDone) markTicketDone(ticket.key);
+        continue;
+      }
+
+      const entry = getOrCreateCard(ticket.key, isDone);
 
       // Set title if available
       if (ticket.title) {
@@ -602,9 +703,10 @@ async function loadLinks() {
 function connect() {
   const es = new EventSource('/events');
 
-  es.onopen = () => {
+  es.onopen = async () => {
     document.getElementById('dot').classList.add('connected');
     document.getElementById('conn-label').textContent = 'Live';
+    await loadConfig(); // must load before loadTickets so Jira URLs are ready
     loadLinks();
     loadTickets();
   };
