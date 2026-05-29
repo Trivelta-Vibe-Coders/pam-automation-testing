@@ -75,6 +75,17 @@ For each flow, classify it using EXACTLY one of these labels:
 - "Agent Error" — test failed because the agent made a mistake (wrong click, hallucination) — NOT a product defect
 - "N/A" — could not run (missing env var, TBD instructions, environment issue)
 
+CRITICAL RULE — run_status is the authoritative signal from the test runner:
+• run_status "passed"             → ALWAYS classify as "Pass" (or "Pass (with bugs)" if issues/summary mention bugs)
+• run_status "failed" or "error"  → classify as "Legitimate Failure" or "Agent Error" using any available context;
+                                     default to "Legitimate Failure" when no further context exists
+• run_status "running"            → classify as "N/A" (still in progress)
+• run_status absent or unknown    → classify as "N/A"
+NEVER classify a flow as "N/A" when run_status is "passed", "failed", or "error" — those values confirm
+the test executed to completion. When summary/issues/last_actions are absent or empty, rely on run_status
+alone and provide a brief generic summary (e.g. "Test completed successfully." or
+"Test failed — review the run recording in Autosana for details.").
+
 Also provide:
 - stg_result: "Pass", "Fail", or "N/A"  (Agent Errors → Pass; Legitimate Failures → Fail)
 - legitimate_failure: "Yes" if Legitimate Failure, "No" if Pass/Agent Error, "" if N/A
@@ -114,17 +125,30 @@ Flow data:
 
 def classify_flows(suite_name, flows):
     print(f"[2] Calling Claude API to classify {len(flows)} flows...")
-    compact = [
-        {
+    compact = []
+    for f in flows:
+        run          = f.get("run", {})
+        run_status   = run.get("status", "no_run")
+        summary      = run.get("summary", "")
+        issues       = run.get("issues", [])
+        last_actions = run.get("last_actions", [])
+        # When we have only the run_status (polling path, no teardown-hook data),
+        # tell Claude explicitly so it doesn't treat sparse data as "N/A".
+        has_detail = bool(summary or issues or last_actions)
+        entry = {
             "flow_id":      f["flow_id"],
             "flow_name":    f["flow_name"],
-            "run_status":   f["run"].get("status", "no_run"),
-            "summary":      f["run"].get("summary", ""),
-            "issues":       f["run"].get("issues", []),
-            "last_actions": f["run"].get("last_actions", []),
+            "run_status":   run_status,
+            "summary":      summary,
+            "issues":       issues,
+            "last_actions": last_actions,
         }
-        for f in flows
-    ]
+        if not has_detail:
+            entry["data_note"] = (
+                "No detailed run data available (results collected via polling). "
+                "Use run_status as the sole classification basis."
+            )
+        compact.append(entry)
     prompt = CLASSIFY_PROMPT.format(suite_name=suite_name, flow_data=json.dumps(compact, indent=2))
     body = json.dumps({
         "model": "claude-sonnet-4-6",
