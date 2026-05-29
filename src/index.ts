@@ -20,6 +20,7 @@ import * as flowLinks   from './services/flow-links';
 import * as ticketStore from './services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
+import { scheduleNightlyRun } from './services/nightly-trigger';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -147,6 +148,9 @@ app.listen(config.port, '0.0.0.0', () => {
     jiraProject: config.jiraProject,
     threshold:   config.matchThreshold,
   });
+
+  // Schedule nightly full regression against staging
+  scheduleNightlyRun();
 });
 
 export default app;
