@@ -18,12 +18,34 @@
  *       manually in Autosana.  Once the flow exists, it can be linked via the
  *       flow-links store and will be triggered on Dev/Stg transitions as normal.
  */
-import { JiraIssue } from '../types';
+import { JiraIssue, JiraIssueFields } from '../types';
 import * as logger from '../logger';
 import * as autosana from '../services/autosana';
 import * as matcher from '../services/flow-matcher';
 import * as slack from '../services/slack';
+import * as ticketStore from '../services/ticket-store';
 import { config } from '../config';
+
+// ── Jira field helpers ────────────────────────────────────────────────────────
+
+/** Extract active sprint name from customfield_10020 (Jira Cloud default). */
+function extractSprintName(fields: JiraIssueFields): string | undefined {
+  const raw = fields['customfield_10020'];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const active = (raw as any[]).find((s: any) => s?.state === 'active') ?? raw[raw.length - 1];
+  return active?.name ? String(active.name) : undefined;
+}
+
+/** Extract epic ref from customfield_10014 (classic link) or parent (next-gen). */
+function extractEpicRef(fields: JiraIssueFields): string | undefined {
+  const cl = fields['customfield_10014'];
+  if (typeof cl === 'string' && cl) return cl;
+  const parent = fields['parent'] as any;
+  if (parent?.fields?.issuetype?.name === 'Epic') {
+    return String(parent.fields?.summary ?? parent.key ?? '');
+  }
+  return undefined;
+}
 
 export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
   const { key } = issue;
@@ -41,6 +63,12 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     issueType:   fields.issuetype?.name ?? 'Story',
     priority:    fields.priority?.name  ?? 'Medium',
   };
+
+  // 1b. Persist sprint / epic so the UI can filter by them
+  ticketStore.updateTicketMeta(key, {
+    sprint: extractSprintName(fields),
+    epic:   extractEpicRef(fields),
+  });
 
   // 2. Gate: does this ticket need an automated test?
   let gate: Awaited<ReturnType<typeof matcher.shouldCreateTest>>;

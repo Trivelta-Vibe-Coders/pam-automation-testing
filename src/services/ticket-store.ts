@@ -21,6 +21,8 @@ export interface TicketRecord {
   title:      string;        // extracted from "Ticket created: …" message
   level:      ActivityLevel; // highest severity seen on this ticket
   jiraStatus: string;        // most-recent Jira status (e.g. "Dev", "Done")
+  sprint?:    string;        // active sprint name, e.g. "Sprint 5"
+  epic?:      string;        // epic key or summary, e.g. "PAMENG-12" or "New Onboarding"
   events:     ActivityEvent[];
   createdAt:  string;
   updatedAt:  string;
@@ -124,6 +126,24 @@ export function updateTicketStatus(key: string, status: string): void {
     rec.jiraStatus = status;
     rec.updatedAt  = new Date().toISOString();
   }
+  saveToDisk();
+}
+
+/**
+ * Update sprint / epic metadata for a ticket.
+ * Called when a webhook payload includes those custom fields.
+ */
+export function updateTicketMeta(
+  key: string,
+  meta: { sprint?: string; epic?: string },
+): void {
+  if (!store.has(key)) {
+    const now = new Date().toISOString();
+    store.set(key, { key, title: '', level: 'info', jiraStatus: '', events: [], createdAt: now, updatedAt: now });
+  }
+  const rec = store.get(key)!;
+  if (meta.sprint !== undefined) rec.sprint = meta.sprint || undefined;
+  if (meta.epic   !== undefined) rec.epic   = meta.epic   || undefined;
   saveToDisk();
 }
 

@@ -87,7 +87,11 @@ app.get('/api/config', (_req: Request, res: Response) => {
 
 // ── API: stored flow links ───────────────────────────────────────────────────
 app.get('/api/links', (_req: Request, res: Response) => {
-  res.json(flowLinks.getAllLinks());
+  const links = flowLinks.getAllLinks().map(link => ({
+    ...link,
+    jiraStatus: ticketStore.getTicket(link.jiraKey)?.jiraStatus ?? '',
+  }));
+  res.json(links);
 });
 
 app.post('/api/links', async (req: Request, res: Response) => {

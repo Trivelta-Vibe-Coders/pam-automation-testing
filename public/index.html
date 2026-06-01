@@ -149,6 +149,20 @@
     .link-form-cancel:hover { border-color:var(--red); color:var(--red); }
     .link-form-error { color:var(--red); font-size:11px; }
 
+    /* ── Filter bar ── */
+    .filter-bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .filter-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); white-space:nowrap; }
+    .filter-select { background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; padding:4px 8px; cursor:pointer; flex:1; min-width:0; }
+    .filter-select:focus { outline:none; border-color:var(--indigo); }
+    .filter-clear { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:11px; padding:4px 8px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
+    .filter-clear:hover { border-color:var(--red); color:var(--red); }
+
+    /* ── Done links in sidebar ── */
+    .link-done { opacity:.5; }
+    .link-done-badge { font-size:10px; background:var(--border); color:var(--muted); border-radius:3px; padding:1px 5px; margin-left:4px; font-weight:normal; vertical-align:middle; }
+    .links-show-done { background:none; border:none; color:var(--muted); font-size:11px; cursor:pointer; margin-left:auto; padding:0; white-space:nowrap; transition:color .15s; }
+    .links-show-done:hover { color:var(--text); }
+
     /* ── Test Runner ── */
     #panel-runner { flex-direction:row; }
     .runner-suites { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
@@ -220,6 +234,12 @@
     <div class="panel-header">
       Activity Log <span class="count" id="event-count">0</span>
     </div>
+    <div class="filter-bar">
+      <span class="filter-label">Filter</span>
+      <select id="filter-sprint" class="filter-select"><option value="">All Sprints</option></select>
+      <select id="filter-epic"   class="filter-select"><option value="">All Epics</option></select>
+      <button class="filter-clear" id="filter-clear" style="display:none">✕ Clear</button>
+    </div>
     <div id="log">
       <div class="tc-done-section collapsed" id="done-section">
         <div class="tc-done-header" id="done-toggle">
@@ -233,7 +253,7 @@
     </div>
   </div>
   <div class="links-section">
-    <div class="panel-header">Flow Links <span class="count" id="links-count">0</span></div>
+    <div class="panel-header">Flow Links <span class="count" id="links-count">0</span><button class="links-show-done" id="links-show-done" style="display:none"></button></div>
     <!-- Add-link form (hidden until "+ Link a Flow" is clicked) -->
     <div class="link-form" id="link-form">
       <div>
@@ -291,6 +311,12 @@ const selectedFlows  = new Map(); // flowId   → { flowId, flowName, suiteName 
 let currentEnv  = 'staging';
 let suitesLoaded = false;
 let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
+
+// Filter state
+const ticketMeta       = new Map(); // key → { sprint, epic }
+let activeSprintFilter = '';
+let activeEpicFilter   = '';
+let showDoneLinks      = false;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 async function loadConfig() {
@@ -713,6 +739,9 @@ async function loadTickets() {
     for (const ticket of tickets) {
       const isDone = ticket.jiraStatus && DONE_STATUSES.test(ticket.jiraStatus);
 
+      // Store sprint/epic metadata for filtering
+      ticketMeta.set(ticket.key, { sprint: ticket.sprint, epic: ticket.epic });
+
       // If a live SSE event already created the card but the persistent record
       // says it's Done, make sure it ends up in the right section.
       if (ticketCards.has(ticket.key)) {
@@ -735,25 +764,104 @@ async function loadTickets() {
         addBullet(ticket.key, ev, text, true);
       }
     }
+    // Populate sprint/epic filter dropdowns from loaded metadata
+    populateFilterDropdowns();
   } catch {}
 }
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+
+function applyFilters() {
+  let visibleDoneCount = 0;
+  for (const [key, entry] of ticketCards) {
+    if (key === 'SYSTEM') continue;
+    const meta     = ticketMeta.get(key) ?? {};
+    const sprintOk = !activeSprintFilter || meta.sprint === activeSprintFilter;
+    const epicOk   = !activeEpicFilter   || meta.epic   === activeEpicFilter;
+    const visible  = sprintOk && epicOk;
+    entry.card.style.display = visible ? '' : 'none';
+    if (entry.isDone && visible) visibleDoneCount++;
+  }
+  // Show/hide done section based on how many done tickets survive the filter
+  if (doneCount > 0) {
+    document.getElementById('done-section').style.display = visibleDoneCount > 0 ? '' : 'none';
+  }
+  const active = activeSprintFilter || activeEpicFilter;
+  document.getElementById('filter-clear').style.display = active ? '' : 'none';
+}
+
+function populateFilterDropdowns() {
+  const sprints = new Set();
+  const epics   = new Set();
+  for (const [, meta] of ticketMeta) {
+    if (meta.sprint) sprints.add(meta.sprint);
+    if (meta.epic)   epics.add(meta.epic);
+  }
+  const sprintSel = document.getElementById('filter-sprint');
+  const epicSel   = document.getElementById('filter-epic');
+  const prevSprint = sprintSel.value;
+  const prevEpic   = epicSel.value;
+  sprintSel.innerHTML = '<option value="">All Sprints</option>';
+  epicSel.innerHTML   = '<option value="">All Epics</option>';
+  [...sprints].sort().forEach(s => {
+    const o = document.createElement('option'); o.value = o.textContent = s; sprintSel.appendChild(o);
+  });
+  [...epics].sort().forEach(e => {
+    const o = document.createElement('option'); o.value = o.textContent = e; epicSel.appendChild(o);
+  });
+  if ([...sprints].includes(prevSprint)) sprintSel.value = prevSprint;
+  if ([...epics].includes(prevEpic))     epicSel.value   = prevEpic;
+}
+
+document.getElementById('filter-sprint').addEventListener('change', e => {
+  activeSprintFilter = e.target.value;
+  applyFilters();
+});
+document.getElementById('filter-epic').addEventListener('change', e => {
+  activeEpicFilter = e.target.value;
+  applyFilters();
+});
+document.getElementById('filter-clear').addEventListener('click', () => {
+  activeSprintFilter = '';
+  activeEpicFilter   = '';
+  document.getElementById('filter-sprint').value = '';
+  document.getElementById('filter-epic').value   = '';
+  applyFilters();
+});
 
 // ── Flow links ────────────────────────────────────────────────────────────────
 async function loadLinks() {
   try {
     const links = await fetch('/api/links').then(r => r.json());
-    document.getElementById('links-count').textContent = links.length;
+    const activeLinks = links.filter(l => !DONE_STATUSES.test(l.jiraStatus ?? ''));
+    const doneLinks   = links.filter(l =>  DONE_STATUSES.test(l.jiraStatus ?? ''));
+
+    document.getElementById('links-count').textContent = activeLinks.length;
+
+    // Update "show/hide done" toggle button
+    const doneBtn = document.getElementById('links-show-done');
+    if (doneLinks.length > 0) {
+      doneBtn.style.display = '';
+      doneBtn.textContent   = showDoneLinks
+        ? `Hide done (${doneLinks.length})`
+        : `Show done (${doneLinks.length})`;
+    } else {
+      doneBtn.style.display = 'none';
+    }
+
+    const displayLinks = showDoneLinks ? links : activeLinks;
     const el = document.getElementById('links-list');
     el.innerHTML = '';
-    if (!links.length) {
+    if (!displayLinks.length) {
       el.innerHTML = '<div class="empty-state">No flow links yet.<br/>Add one with the button below.</div>';
       return;
     }
-    for (const l of links) {
+    for (const l of displayLinks) {
+      const isDone = DONE_STATUSES.test(l.jiraStatus ?? '');
       const c = document.createElement('div');
-      c.className = 'link-card';
+      c.className = 'link-card' + (isDone ? ' link-done' : '');
       c.innerHTML =
-        `<div class="link-jira">${esc(l.jiraKey)}</div>` +
+        `<div class="link-jira">${esc(l.jiraKey)}${isDone ? '<span class="link-done-badge">Done</span>' : ''}</div>` +
         `<div class="link-flow">${esc(l.flowName)}</div>` +
         `<div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>` +
         `<button class="link-delete" data-key="${esc(l.jiraKey)}" title="Remove link">✕</button>`;
@@ -770,6 +878,11 @@ async function loadLinks() {
     }
   } catch {}
 }
+
+document.getElementById('links-show-done').addEventListener('click', () => {
+  showDoneLinks = !showDoneLinks;
+  loadLinks();
+});
 
 // ── Link form ─────────────────────────────────────────────────────────────────
 let flowDropdownLoaded = false;

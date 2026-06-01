@@ -9,7 +9,7 @@
  *   3. Trigger the relevant suite against the target environment
  *   4. Post Jira comment with batch_id so team can track the run
  */
-import { JiraWebhookPayload } from '../types';
+import { JiraWebhookPayload, JiraIssueFields } from '../types';
 import * as logger from '../logger';
 import * as jiraClient from '../services/jira';
 import * as flowLinks from '../services/flow-links';
@@ -17,6 +17,25 @@ import * as ticketStore from '../services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
 import { config } from '../config';
+
+// ── Jira field helpers ────────────────────────────────────────────────────────
+
+function extractSprintName(fields: JiraIssueFields): string | undefined {
+  const raw = fields['customfield_10020'];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const active = (raw as any[]).find((s: any) => s?.state === 'active') ?? raw[raw.length - 1];
+  return active?.name ? String(active.name) : undefined;
+}
+
+function extractEpicRef(fields: JiraIssueFields): string | undefined {
+  const cl = fields['customfield_10014'];
+  if (typeof cl === 'string' && cl) return cl;
+  const parent = fields['parent'] as any;
+  if (parent?.fields?.issuetype?.name === 'Epic') {
+    return String(parent.fields?.summary ?? parent.key ?? '');
+  }
+  return undefined;
+}
 
 // Map Jira status names → Autosana environments
 function statusToEnvironment(statusName: string): TriggerEnvironment | null {
@@ -42,8 +61,12 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   const newStatus  = statusChange.toString!;
   const fromStatus = statusChange.fromString ?? '?';
 
-  // Always persist the latest Jira status so the UI can group by Done etc.
+  // Always persist the latest Jira status + sprint/epic metadata
   ticketStore.updateTicketStatus(key, newStatus);
+  ticketStore.updateTicketMeta(key, {
+    sprint: extractSprintName(issue.fields),
+    epic:   extractEpicRef(issue.fields),
+  });
 
   const env = statusToEnvironment(newStatus);
 
