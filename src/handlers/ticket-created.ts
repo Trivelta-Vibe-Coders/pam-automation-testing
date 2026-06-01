@@ -35,7 +35,34 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     priority:   fields.priority?.name  ?? 'Medium',
   };
 
-  // 2. Fetch all PAM flows
+  // 2. Gate: does this ticket need an automated test?
+  let gate: Awaited<ReturnType<typeof matcher.shouldCreateTest>>;
+  try {
+    gate = await matcher.shouldCreateTest(ticket);
+  } catch (err) {
+    logger.warn(`Test-coverage gate failed for ${key} — defaulting to create`, { error: String(err) });
+    gate = { needed: true, reason: 'Gate check error — defaulting to create' };
+  }
+
+  if (!gate.needed) {
+    logger.info(
+      `${key} — no test coverage required: ${gate.reason}`,
+      { key, reason: gate.reason },
+    );
+    try {
+      await jiraClient.addComment(
+        key,
+        `🤖 *PAM QA Agent* — No automated test flow needed for this ticket.\n` +
+        `Reason: ${gate.reason}\n\n` +
+        `_If test coverage is required, add the label \`pam-test\` and the agent will create a flow._`,
+      );
+    } catch { /* ignore comment errors */ }
+    return;
+  }
+
+  logger.info(`${key} — test coverage required: ${gate.reason}`, { key, reason: gate.reason });
+
+  // 4. Fetch all PAM flows
   let allFlows: Awaited<ReturnType<typeof autosana.listAllPamFlows>>;
   try {
     allFlows = await autosana.listAllPamFlows();
@@ -45,7 +72,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     return;
   }
 
-  // 3. Semantic matching
+  // 5. Semantic matching
   let targetFlowId: string;
   let targetFlowName: string;
   let targetSuiteId: string;
@@ -119,7 +146,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     return;
   }
 
-  // 4. Persist the link
+  // 6. Persist the link
   flowLinks.setLink({
     jiraKey:   key,
     flowId:    targetFlowId,
@@ -129,7 +156,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     updatedAt: new Date().toISOString(),
   });
 
-  // 5. Post Jira comment
+  // 7. Post Jira comment
   try {
     const verb = action === 'updated' ? 'updated to include coverage for' : 'created for';
     await jiraClient.addComment(

@@ -313,6 +313,16 @@ function prettify(msg, details) {
   if (/^Ticket created:/.test(msg))
     return 'Ticket created';
 
+  if (/— no test coverage required:/.test(msg)) {
+    const reason = msg.match(/: (.+)$/)?.[1] ?? '';
+    return `No test needed — ${reason}`;
+  }
+
+  if (/— test coverage required:/.test(msg)) {
+    const reason = msg.match(/: (.+)$/)?.[1] ?? '';
+    return `Test coverage needed — ${reason}`;
+  }
+
   if (/^Fetched \d+ existing flow/.test(msg)) {
     const n = msg.match(/\d+/)?.[0] ?? '?';
     return `Searched Autosana — found ${n} existing flow${n==='1'?'':'s'}`;

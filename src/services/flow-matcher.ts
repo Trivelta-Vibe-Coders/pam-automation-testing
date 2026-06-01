@@ -39,6 +39,92 @@ export interface TicketContext {
   priority: string;
 }
 
+// ── Test-coverage gate ────────────────────────────────────────────────────────
+
+export interface TestNeedDecision {
+  needed: boolean;
+  reason: string;
+}
+
+/**
+ * Ask Claude whether this Jira ticket needs an automated test flow.
+ *
+ * Tickets that pass:
+ *   - Add or change user-facing PAM functionality (UI, data display, workflows)
+ *   - Report a bug in a visible feature
+ *
+ * Tickets that skip:
+ *   - Epics, Spikes, Documentation, infrastructure-only changes
+ *   - Backend-only changes with no PAM UI impact
+ *   - Vague / process / meeting tickets
+ *
+ * Hard override: if the ticket has the label "pam-test", always returns needed=true.
+ */
+export async function shouldCreateTest(ticket: TicketContext): Promise<TestNeedDecision> {
+  // Hard override — team explicitly flagged this ticket for test coverage
+  if (ticket.labels.some(l => /^pam-test$/i.test(l))) {
+    return { needed: true, reason: 'Label "pam-test" — test coverage forced by team' };
+  }
+
+  // Fast-path structural types that never warrant their own test flow
+  const ALWAYS_SKIP = /^(epic|spike|research|documentation)$/i;
+  if (ALWAYS_SKIP.test(ticket.issueType)) {
+    return {
+      needed: false,
+      reason: `Issue type "${ticket.issueType}" — test coverage goes on the individual sub-tasks, not the container`,
+    };
+  }
+
+  const prompt = `You are a QA lead deciding whether to create an automated test flow for a Jira ticket.
+
+The test suite covers a PAM (Player Account Management) back-office web application.
+Test flows verify user-facing behaviour: navigating screens, clicking UI elements, checking displayed data, submitting forms, verifying reports, etc.
+
+Decide: does this ticket warrant creating or updating an automated test flow?
+
+Answer YES if the ticket:
+- Adds, changes, or fixes user-facing PAM functionality (UI, workflows, data display, reports, filters)
+- Describes a bug visible to PAM agents/admins that could be caught by a UI test
+- Introduces a new screen, form, or user action
+
+Answer NO if the ticket:
+- Is backend-only with zero UI impact (API changes, DB migrations, config, infra, CI/CD)
+- Is a process/admin task (documentation, meetings, onboarding, access requests)
+- Is too vague to derive concrete test steps from the description
+- Is an Epic or container ticket (sub-tasks will each have their own flows)
+
+TICKET
+Type:        ${ticket.issueType}
+Priority:    ${ticket.priority}
+Labels:      ${ticket.labels.join(', ') || 'none'}
+Components:  ${ticket.components.join(', ') || 'none'}
+Summary:     ${ticket.summary}
+Description:
+${ticket.description.slice(0, 600) || '(no description provided)'}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{"needed": true, "reason": "one sentence explanation"}
+or
+{"needed": false, "reason": "one sentence explanation"}`;
+
+  const msg = await anthropic.messages.create({
+    model:      config.claudeModel,
+    max_tokens: 128,
+    messages:   [{ role: 'user', content: prompt }],
+  });
+
+  const raw = (msg.content[0] as { type: string; text: string }).text.trim();
+  try {
+    const json = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+    const parsed = JSON.parse(json) as { needed: boolean; reason: string };
+    return { needed: !!parsed.needed, reason: parsed.reason ?? '' };
+  } catch {
+    // If Claude's response can't be parsed, default to creating the test
+    // (safe fallback — better to have one extra test than miss coverage)
+    return { needed: true, reason: `Could not parse gate response — defaulting to create (raw: ${raw.slice(0, 80)})` };
+  }
+}
+
 // ── Match existing flows ──────────────────────────────────────────────────────
 
 /**
