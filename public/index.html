@@ -143,10 +143,13 @@
     .suite-card.collapsed .suite-chevron { transform:rotate(-90deg); }
     .flows-list { }
     .suite-card.collapsed .flows-list { display:none; }
-    .flow-row { display:flex; align-items:center; gap:8px; padding:7px 16px 7px 42px; border-bottom:1px solid var(--border); }
+    .flow-row { display:flex; align-items:center; gap:8px; padding:7px 16px 7px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; }
     .flow-row:last-child { border-bottom:none; }
-    .flow-bullet { color:var(--muted); font-size:12px; flex-shrink:0; }
+    .flow-row:hover { background:var(--bg3); }
+    .flow-row.flow-selected { background:rgba(99,102,241,.08); }
+    .flow-check { width:15px; height:15px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; margin-left:26px; }
     .flow-name { font-size:12px; color:var(--muted); flex:1; line-height:1.4; }
+    .flow-row.flow-selected .flow-name { color:var(--text); }
     .suite-loading { padding:16px; color:var(--muted); font-size:12px; text-align:center; }
 
     /* Runner controls sidebar */
@@ -247,7 +250,8 @@ function fmtTime(iso) { const d=new Date(iso); return d.toLocaleTimeString('en-U
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
-const selectedSuites = new Map(); // suiteId → suiteName
+const selectedSuites = new Map(); // suiteId  → suiteName
+const selectedFlows  = new Map(); // flowId   → { flowId, flowName, suiteName }
 let currentEnv  = 'staging';
 let suitesLoaded = false;
 let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
@@ -746,12 +750,23 @@ setInterval(refreshUptime, 10_000);
 
 // ── Test Runner ───────────────────────────────────────────────────────────────
 function updateRunBtn() {
-  const n   = selectedSuites.size;
+  const ns  = selectedSuites.size;
+  const nf  = selectedFlows.size;
   const btn = document.getElementById('run-btn');
-  document.getElementById('sel-summary').textContent =
-    n === 0 ? '0 suites selected' : `${n} suite${n===1?'':'s'} selected`;
-  btn.textContent = n === 0 ? '▶ Run Selected' : `▶ Run ${n} Suite${n===1?'':'s'}`;
-  btn.disabled = n === 0;
+  const sum = document.getElementById('sel-summary');
+  if (nf > 0) {
+    sum.textContent  = `${nf} flow${nf===1?'':'s'} selected`;
+    btn.textContent  = `▶ Run ${nf} Flow${nf===1?'':'s'}`;
+    btn.disabled     = false;
+  } else if (ns > 0) {
+    sum.textContent  = `${ns} suite${ns===1?'':'s'} selected`;
+    btn.textContent  = `▶ Run ${ns} Suite${ns===1?'':'s'}`;
+    btn.disabled     = false;
+  } else {
+    sum.textContent  = 'Nothing selected';
+    btn.textContent  = '▶ Run Selected';
+    btn.disabled     = true;
+  }
 }
 
 function renderSuites(data) {
@@ -768,29 +783,74 @@ function renderSuites(data) {
       <div class="suite-header">
         <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" data-name="${esc(suite.suite_name)}" />
         <span class="suite-name">${esc(suite.suite_name)}</span>
-        <span class="suite-badge">${fc} test${fc===1?'':'s'}</span>
+        <span class="suite-badge">${fc} flow${fc===1?'':'s'}</span>
         <span class="suite-chevron">▾</span>
       </div>
       <div class="flows-list">${
         fc === 0
           ? '<div class="suite-loading">No flows yet.</div>'
           : suite.flows.map(f => `
-              <div class="flow-row">
-                <span class="flow-bullet">›</span>
+              <div class="flow-row" data-flow-id="${esc(f.id)}">
+                <input type="checkbox" class="flow-check"
+                  data-flow="${esc(f.id)}"
+                  data-name="${esc(f.name)}"
+                  data-suite="${esc(suite.suite_id)}"
+                  data-suite-name="${esc(suite.suite_name)}" />
                 <span class="flow-name">${esc(f.name)}</span>
               </div>`).join('')
       }</div>`;
 
+    // Suite header click → collapse/expand (but not when clicking the checkbox)
     card.querySelector('.suite-header').addEventListener('click', e => {
       if (e.target.classList.contains('suite-check')) return;
       card.classList.toggle('collapsed');
     });
+
+    // Suite checkbox → select whole suite; clear any individual flow selections
     card.querySelector('.suite-check').addEventListener('change', e => {
       const cb = e.target;
-      if (cb.checked) selectedSuites.set(cb.dataset.suite, cb.dataset.name);
-      else            selectedSuites.delete(cb.dataset.suite);
+      if (cb.checked) {
+        // Deselect all individual flows
+        document.querySelectorAll('.flow-check:checked').forEach(fc => {
+          fc.checked = false;
+          fc.closest('.flow-row').classList.remove('flow-selected');
+        });
+        selectedFlows.clear();
+        selectedSuites.set(cb.dataset.suite, cb.dataset.name);
+      } else {
+        selectedSuites.delete(cb.dataset.suite);
+      }
       updateRunBtn();
     });
+
+    // Flow row click → toggle the checkbox inside it
+    card.querySelectorAll('.flow-row').forEach(row => {
+      row.addEventListener('click', e => {
+        if (e.target.classList.contains('flow-check')) return; // let native checkbox handle it
+        const cb = row.querySelector('.flow-check');
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+
+    // Individual flow checkbox → select that flow; clear suite-level selections
+    card.querySelectorAll('.flow-check').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const { flow, name, suiteName } = e.target.dataset;
+        if (e.target.checked) {
+          // Deselect all suites
+          document.querySelectorAll('.suite-check:checked').forEach(sc => { sc.checked = false; });
+          selectedSuites.clear();
+          selectedFlows.set(flow, { flowId: flow, flowName: name, suiteName });
+          e.target.closest('.flow-row').classList.add('flow-selected');
+        } else {
+          selectedFlows.delete(flow);
+          e.target.closest('.flow-row').classList.remove('flow-selected');
+        }
+        updateRunBtn();
+      });
+    });
+
     container.appendChild(card);
   }
   updateRunBtn();
@@ -820,23 +880,32 @@ document.querySelectorAll('.env-btn').forEach(btn => {
 
 // Run button
 document.getElementById('run-btn').addEventListener('click', async () => {
+  const flowIds  = [...selectedFlows.keys()];
   const suiteIds = [...selectedSuites.keys()];
+  const isFlowRun = flowIds.length > 0;
+
   const resultEl = document.getElementById('run-result');
   const btn      = document.getElementById('run-btn');
   btn.disabled = true; btn.textContent = '⏳ Triggering…'; resultEl.style.display = 'none';
+
+  const body = isFlowRun
+    ? { environment: currentEnv, flow_ids: flowIds }
+    : { environment: currentEnv, suite_ids: suiteIds };
 
   try {
     const res  = await fetch('/api/run', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ environment: currentEnv, suite_ids: suiteIds }),
+      body:    JSON.stringify(body),
     });
     const data = await res.json();
     if (data.ok) {
-      const suiteNames = suiteIds.map(id => selectedSuites.get(id)).join(', ');
+      const label = isFlowRun
+        ? `Flow${flowIds.length===1?'':'s'}: ${flowIds.map(id => esc(selectedFlows.get(id)?.flowName ?? id)).join(', ')}`
+        : `Suite${suiteIds.length===1?'':'s'}: ${suiteIds.map(id => esc(selectedSuites.get(id) ?? id)).join(', ')}`;
       resultEl.innerHTML =
         `<div class="res-label">✅ <strong>${data.flowRunCount}</strong> flow${data.flowRunCount===1?'':'s'} triggered on <strong>${currentEnv}</strong></div>` +
-        `<div class="res-label" style="margin-top:6px">Suite(s): ${esc(suiteNames)}</div>` +
+        `<div class="res-label" style="margin-top:6px">${label}</div>` +
         `<div class="res-label" style="margin-top:8px">Batch ID</div><div class="res-value">${esc(data.batchId)}</div>`;
     } else {
       resultEl.innerHTML = `<div class="res-error">❌ ${esc(data.error)}</div>`;
@@ -852,6 +921,7 @@ document.getElementById('run-btn').addEventListener('click', async () => {
 // Refresh flows
 document.getElementById('refresh-btn').addEventListener('click', async () => {
   selectedSuites.clear();
+  selectedFlows.clear();
   updateRunBtn();
   await fetch('/api/refresh-flows', { method: 'POST' });
   loadSuites();

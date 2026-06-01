@@ -70,21 +70,35 @@ runnerRouter.get('/suites-with-flows', async (_req: Request, res: Response) => {
 });
 
 runnerRouter.post('/run', async (req: Request, res: Response) => {
-  const environment             = (req.body?.environment ?? 'staging') as TriggerEnvironment;
-  const suiteIds: string[]      = req.body?.suite_ids ?? [];
+  const environment        = (req.body?.environment ?? 'staging') as TriggerEnvironment;
+  const suiteIds: string[] = req.body?.suite_ids ?? [];
+  const flowIds:  string[] = req.body?.flow_ids  ?? [];
 
-  if (!suiteIds.length) {
-    res.status(400).json({ error: 'No suites selected' });
+  if (!suiteIds.length && !flowIds.length) {
+    res.status(400).json({ error: 'No suites or flows selected' });
     return;
   }
 
-  logger.info(
-    `Manual run triggered: ${suiteIds.length} suite(s) on ${environment}`,
-    { suiteIds, environment },
-  );
+  const isFlowRun = flowIds.length > 0;
+
+  if (isFlowRun) {
+    logger.info(
+      `Manual run triggered: ${flowIds.length} specific flow(s) on ${environment}`,
+      { flowIds, environment },
+    );
+  } else {
+    logger.info(
+      `Manual run triggered: ${suiteIds.length} suite(s) on ${environment}`,
+      { suiteIds, environment },
+    );
+  }
 
   try {
-    const result = await triggerFlows({ environment, suiteIds });
+    const result = await triggerFlows(
+      isFlowRun
+        ? { environment, flowIds }
+        : { environment, suiteIds },
+    );
 
     // Start background polling → dispatches GitHub Actions → Slack report when done
     startPolling({ batchId: result.batchId, environment, triggeredBy: 'manual' });
