@@ -10,8 +10,11 @@ export type TriggerEnvironment = 'staging' | 'dev';
 
 export interface TriggerOptions {
   environment: TriggerEnvironment;
-  suiteIds?: string[];     // if omitted, trigger all 4 PAM suites
-  jiraKey?: string;        // for logging
+  /** Trigger specific flows (auth instructions applied by Autosana). */
+  flowIds?:  string[];
+  /** Trigger full suites — used for nightly runs and "no link" fallback. */
+  suiteIds?: string[];
+  jiraKey?:  string;        // for logging
 }
 
 export interface TriggerResult {
@@ -22,8 +25,10 @@ export interface TriggerResult {
 }
 
 /**
- * Trigger PAM test suites against the specified environment.
- * Returns the batch_id so the caller can optionally poll for status.
+ * Trigger PAM tests against the specified environment.
+ * - flowIds present  → trigger those specific flows (auth handled by Autosana)
+ * - suiteIds present → trigger those suites
+ * - neither          → trigger all PAM suites (full regression)
  */
 export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult> {
   const appId = config.autosanaEnvMap[opts.environment];
@@ -31,17 +36,24 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
     throw new Error(`No Autosana app_id configured for environment "${opts.environment}"`);
   }
 
-  const suiteIds = opts.suiteIds ?? Object.values(config.suites);
+  let runPayload: Parameters<typeof triggerRun>[0];
 
-  logger.info(
-    `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
-    { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
-  );
+  if (opts.flowIds?.length) {
+    logger.info(
+      `Triggering ${opts.flowIds.length} specific flow(s) against ${opts.environment}`,
+      { environment: opts.environment, appId, flowIds: opts.flowIds, jiraKey: opts.jiraKey },
+    );
+    runPayload = { app_id: appId, flow_ids: opts.flowIds };
+  } else {
+    const suiteIds = opts.suiteIds ?? Object.values(config.suites);
+    logger.info(
+      `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
+      { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
+    );
+    runPayload = { app_id: appId, suite_ids: suiteIds };
+  }
 
-  const result = await triggerRun({
-    app_id:    appId,
-    suite_ids: suiteIds,
-  });
+  const result = await triggerRun(runPayload);
 
   logger.success(
     `Run triggered — batch_id: ${result.batch_id} (${result.flow_run_count} flows)`,

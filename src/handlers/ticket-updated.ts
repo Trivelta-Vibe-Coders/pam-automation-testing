@@ -88,12 +88,14 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     }
   }
 
-  const suiteIds = link ? [link.suiteId] : undefined;
-
-  // 3. Trigger
+  // 3. Trigger — specific flow when we have a link, full suites as fallback
   let result: Awaited<ReturnType<typeof triggerFlows>>;
   try {
-    result = await triggerFlows({ environment: env, suiteIds, jiraKey: key });
+    result = await triggerFlows({
+      environment: env,
+      ...(link ? { flowIds: [link.flowId] } : {}),
+      jiraKey: key,
+    });
   } catch (err) {
     logger.error(`Trigger failed for ${key}`, { error: String(err) });
     try {
@@ -112,17 +114,12 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   // 5. Post Jira comment
   try {
-    const suitesRun = suiteIds
-      ? Object.entries(config.suites)
-          .filter(([, id]) => suiteIds!.includes(id))
-          .map(([name]) => name)
-          .join(', ')
-      : 'all PAM suites';
+    const whatRan = link ? `Flow: "${link.flowName}"` : 'all PAM suites (no flow link found)';
 
     await jiraClient.addComment(
       key,
       `🤖 *PAM QA Agent* — Automated tests triggered for *${env}* environment.\n` +
-      `Suite(s): ${suitesRun}\n` +
+      `${whatRan}\n` +
       `Batch ID: \`${result.batchId}\`  |  Flows: ${result.flowRunCount}\n` +
       `Results will appear in Slack once the run completes (~15–30 min).`,
     );
