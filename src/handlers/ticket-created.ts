@@ -21,7 +21,6 @@
 import { JiraIssue } from '../types';
 import * as logger from '../logger';
 import * as autosana from '../services/autosana';
-import * as jiraClient from '../services/jira';
 import * as matcher from '../services/flow-matcher';
 import * as slack from '../services/slack';
 import { config } from '../config';
@@ -57,14 +56,6 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
       `${key} — no test coverage required: ${gate.reason}`,
       { key, reason: gate.reason },
     );
-    try {
-      await jiraClient.addComment(
-        key,
-        `🤖 *PAM QA Agent* — No automated test flow needed for this ticket.\n` +
-        `Reason: ${gate.reason}\n\n` +
-        `_If test coverage is required, add the label \`pam-test\` to this ticket._`,
-      );
-    } catch { /* ignore comment errors */ }
     return;
   }
 
@@ -150,19 +141,4 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     logger.warn(`Could not send Slack recommendation for ${key}`, { error: String(err), key });
   }
 
-  // 6. Post Jira comment confirming analysis
-  try {
-    const action = matchFound
-      ? `found an existing flow that may cover this ticket ("${existingFlowName}")`
-      : `drafted instructions for a new flow in the *${suiteName}* suite`;
-
-    await jiraClient.addComment(
-      key,
-      `🤖 *PAM QA Agent* — Ticket analysed. The agent has ${action}.\n` +
-      `A Slack notification has been sent with the suggested test instructions for review.\n\n` +
-      `Once a flow is created or updated in Autosana, tests will trigger automatically when this ticket moves to Dev or Stg.`,
-    );
-  } catch (err) {
-    logger.warn(`Could not post Jira comment on ${key}`, { error: String(err), key });
-  }
 }
