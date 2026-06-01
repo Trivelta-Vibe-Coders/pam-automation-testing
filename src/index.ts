@@ -22,6 +22,7 @@ import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
 import { getFlow } from './services/autosana';
 import { scheduleNightlyRun } from './services/nightly-trigger';
+import { backfillTicketMeta } from './services/meta-backfill';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -204,6 +205,9 @@ app.listen(config.port, '0.0.0.0', () => {
 
   // Schedule nightly full regression against staging
   scheduleNightlyRun();
+
+  // Backfill sprint/epic for tickets that pre-date this feature (non-blocking)
+  backfillTicketMeta().catch(() => {});
 });
 
 export default app;

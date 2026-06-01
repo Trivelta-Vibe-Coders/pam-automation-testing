@@ -9,33 +9,15 @@
  *   3. Trigger the relevant suite against the target environment
  *   4. Post Jira comment with batch_id so team can track the run
  */
-import { JiraWebhookPayload, JiraIssueFields } from '../types';
+import { JiraWebhookPayload } from '../types';
 import * as logger from '../logger';
 import * as jiraClient from '../services/jira';
 import * as flowLinks from '../services/flow-links';
 import * as ticketStore from '../services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
+import { extractSprintName, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
-
-// ── Jira field helpers ────────────────────────────────────────────────────────
-
-function extractSprintName(fields: JiraIssueFields): string | undefined {
-  const raw = fields['customfield_10020'];
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const active = (raw as any[]).find((s: any) => s?.state === 'active') ?? raw[raw.length - 1];
-  return active?.name ? String(active.name) : undefined;
-}
-
-function extractEpicRef(fields: JiraIssueFields): string | undefined {
-  const cl = fields['customfield_10014'];
-  if (typeof cl === 'string' && cl) return cl;
-  const parent = fields['parent'] as any;
-  if (parent?.fields?.issuetype?.name === 'Epic') {
-    return String(parent.fields?.summary ?? parent.key ?? '');
-  }
-  return undefined;
-}
 
 // Map Jira status names → Autosana environments
 function statusToEnvironment(statusName: string): TriggerEnvironment | null {
