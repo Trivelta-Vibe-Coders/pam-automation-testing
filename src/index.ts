@@ -20,6 +20,7 @@ import * as flowLinks   from './services/flow-links';
 import * as ticketStore from './services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
+import { getFlow } from './services/autosana';
 import { scheduleNightlyRun } from './services/nightly-trigger';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
@@ -87,6 +88,46 @@ app.get('/api/config', (_req: Request, res: Response) => {
 // ── API: stored flow links ───────────────────────────────────────────────────
 app.get('/api/links', (_req: Request, res: Response) => {
   res.json(flowLinks.getAllLinks());
+});
+
+app.post('/api/links', async (req: Request, res: Response) => {
+  const { jiraKey, flowId } = req.body ?? {};
+  if (!jiraKey || !flowId) {
+    res.status(400).json({ error: 'jiraKey and flowId are required' });
+    return;
+  }
+  if (!/^[A-Z]+-\d+$/i.test(String(jiraKey))) {
+    res.status(400).json({ error: 'jiraKey must be in the format PROJECT-123' });
+    return;
+  }
+  try {
+    const flow = await getFlow(String(flowId));
+    const suiteName = Object.entries(config.suites).find(([, id]) => id === flow.suite_id)?.[0] ?? '';
+    const link: import('./types').FlowLink = {
+      jiraKey:   String(jiraKey).toUpperCase(),
+      flowId:    flow.id,
+      flowName:  flow.name,
+      suiteId:   flow.suite_id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    flowLinks.setLink(link);
+    logger.success(`Flow link created: ${link.jiraKey} → "${flow.name}"`, { jiraKey: link.jiraKey, flowId: flow.id });
+    res.json({ ok: true, link, suiteName });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
+app.delete('/api/links/:jiraKey', (req: Request, res: Response) => {
+  const { jiraKey } = req.params;
+  const deleted = flowLinks.deleteLink(jiraKey.toUpperCase());
+  if (deleted) {
+    logger.info(`Flow link removed: ${jiraKey}`);
+    res.json({ ok: true });
+  } else {
+    res.status(404).json({ ok: false, error: 'Link not found' });
+  }
 });
 
 // ── API: persistent ticket records ───────────────────────────────────────────

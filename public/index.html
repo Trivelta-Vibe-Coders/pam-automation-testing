@@ -54,7 +54,7 @@
     .log-section { display:flex; flex-direction:column; flex:1; overflow:hidden; border-right:1px solid var(--border); }
     .panel-header { padding:10px 16px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
     .panel-header .count { background:var(--border); color:var(--text); border-radius:999px; padding:1px 7px; font-size:10px; }
-    .auto-scroll-toggle { margin-left:auto; display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--muted); font-size:11px; }
+
 
     /* ── Ticket Cards ── */
     #log { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
@@ -121,13 +121,33 @@
     .tc-done-section { display:none; } /* hidden until there are done tickets */
 
     /* ── Flow Links sidebar ── */
-    .links-section { width:280px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
+    .links-section { width:300px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
     #links-list { flex:1; overflow-y:auto; padding:8px; }
-    .link-card { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12px; }
+    .link-card { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; margin-bottom:8px; font-size:12px; position:relative; }
+    .link-card:hover .link-delete { opacity:1; }
     .link-jira { font-weight:700; color:var(--indigo); font-size:13px; margin-bottom:3px; }
     .link-flow { color:var(--text); margin-bottom:4px; word-break:break-word; }
+    .link-suite { color:var(--muted); font-size:11px; margin-bottom:3px; }
     .link-meta { color:var(--muted); font-size:11px; }
+    .link-delete { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--muted); font-size:14px; cursor:pointer; opacity:0; transition:opacity .15s,color .15s; line-height:1; padding:2px 4px; border-radius:3px; }
+    .link-delete:hover { color:var(--red); opacity:1; }
     .empty-state { color:var(--muted); font-size:12px; text-align:center; padding:32px 16px; line-height:1.6; }
+
+    /* Add-link form */
+    .link-add-btn { width:calc(100% - 16px); margin:8px; padding:7px; background:none; border:1px dashed var(--border); border-radius:6px; color:var(--muted); font-size:12px; cursor:pointer; transition:border-color .15s,color .15s; }
+    .link-add-btn:hover { border-color:var(--indigo); color:var(--indigo); }
+    .link-form { padding:8px; border-bottom:1px solid var(--border); display:none; flex-direction:column; gap:8px; background:var(--bg); }
+    .link-form.open { display:flex; }
+    .link-form label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+    .link-form input, .link-form select { width:100%; padding:7px 10px; background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; }
+    .link-form input:focus, .link-form select:focus { outline:none; border-color:var(--indigo); }
+    .link-form-row { display:flex; gap:6px; }
+    .link-form-save { flex:1; padding:7px; background:var(--indigo); color:#fff; border:none; border-radius:5px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+    .link-form-save:hover:not(:disabled) { opacity:.85; }
+    .link-form-save:disabled { opacity:.4; cursor:not-allowed; }
+    .link-form-cancel { padding:7px 10px; background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:12px; cursor:pointer; }
+    .link-form-cancel:hover { border-color:var(--red); color:var(--red); }
+    .link-form-error { color:var(--red); font-size:11px; }
 
     /* ── Test Runner ── */
     #panel-runner { flex-direction:row; }
@@ -199,7 +219,6 @@
   <div class="log-section">
     <div class="panel-header">
       Activity Log <span class="count" id="event-count">0</span>
-      <label class="auto-scroll-toggle"><input type="checkbox" id="auto-scroll" checked /> Auto-scroll</label>
     </div>
     <div id="log">
       <div class="tc-done-section collapsed" id="done-section">
@@ -215,7 +234,24 @@
   </div>
   <div class="links-section">
     <div class="panel-header">Flow Links <span class="count" id="links-count">0</span></div>
-    <div id="links-list"><div class="empty-state">No flow links yet.<br/>Links appear when tickets are processed.</div></div>
+    <!-- Add-link form (hidden until "+ Link a Flow" is clicked) -->
+    <div class="link-form" id="link-form">
+      <div>
+        <label for="link-jira-input">Jira Key</label>
+        <input type="text" id="link-jira-input" placeholder="PAMENG-123" autocomplete="off" spellcheck="false" />
+      </div>
+      <div>
+        <label for="link-flow-select">Flow</label>
+        <select id="link-flow-select"><option value="">— select a flow —</option></select>
+      </div>
+      <div id="link-form-error" class="link-form-error" style="display:none"></div>
+      <div class="link-form-row">
+        <button class="link-form-save" id="link-form-save" disabled>Save</button>
+        <button class="link-form-cancel" id="link-form-cancel">Cancel</button>
+      </div>
+    </div>
+    <div id="links-list"><div class="empty-state">No flow links yet.<br/>Add one with the button below.</div></div>
+    <button class="link-add-btn" id="link-add-btn">＋ Link a Flow</button>
   </div>
 </div>
 
@@ -632,7 +668,7 @@ function addBullet(key, ev, text, isHistorical) {
   entry.listEl.appendChild(li);
 
   // Scroll card into view for live events only
-  if (!isHistorical && document.getElementById('auto-scroll').checked) {
+  if (!isHistorical) {
     entry.card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 }
@@ -711,20 +747,122 @@ async function loadLinks() {
   try {
     const links = await fetch('/api/links').then(r => r.json());
     document.getElementById('links-count').textContent = links.length;
-    if (!links.length) return;
     const el = document.getElementById('links-list');
     el.innerHTML = '';
+    if (!links.length) {
+      el.innerHTML = '<div class="empty-state">No flow links yet.<br/>Add one with the button below.</div>';
+      return;
+    }
     for (const l of links) {
       const c = document.createElement('div');
       c.className = 'link-card';
       c.innerHTML =
         `<div class="link-jira">${esc(l.jiraKey)}</div>` +
         `<div class="link-flow">${esc(l.flowName)}</div>` +
-        `<div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>`;
+        `<div class="link-meta">Updated ${new Date(l.updatedAt).toLocaleDateString()}</div>` +
+        `<button class="link-delete" data-key="${esc(l.jiraKey)}" title="Remove link">✕</button>`;
+      c.querySelector('.link-delete').addEventListener('click', async e => {
+        e.stopPropagation();
+        const key = e.currentTarget.dataset.key;
+        if (!confirm(`Remove the flow link for ${key}?`)) return;
+        try {
+          await fetch(`/api/links/${encodeURIComponent(key)}`, { method: 'DELETE' });
+          await loadLinks();
+        } catch {}
+      });
       el.appendChild(c);
     }
   } catch {}
 }
+
+// ── Link form ─────────────────────────────────────────────────────────────────
+let flowDropdownLoaded = false;
+
+async function populateFlowDropdown() {
+  const sel = document.getElementById('link-flow-select');
+  if (flowDropdownLoaded) return;
+  sel.innerHTML = '<option value="">Loading flows…</option>';
+  try {
+    const suites = await fetch('/api/suites-with-flows').then(r => r.json());
+    sel.innerHTML = '<option value="">— select a flow —</option>';
+    for (const suite of suites) {
+      if (!suite.flows.length) continue;
+      const grp = document.createElement('optgroup');
+      grp.label = suite.suite_name;
+      for (const f of suite.flows) {
+        const opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.name;
+        grp.appendChild(opt);
+      }
+      sel.appendChild(grp);
+    }
+    flowDropdownLoaded = true;
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load flows</option>';
+  }
+}
+
+function checkLinkFormValid() {
+  const key  = (document.getElementById('link-jira-input').value ?? '').trim();
+  const flow = document.getElementById('link-flow-select').value;
+  document.getElementById('link-form-save').disabled = !(key && flow && /^[A-Z]+-\d+$/i.test(key));
+}
+
+function openLinkForm() {
+  document.getElementById('link-form').classList.add('open');
+  document.getElementById('link-add-btn').style.display = 'none';
+  document.getElementById('link-form-error').style.display = 'none';
+  document.getElementById('link-jira-input').value = '';
+  document.getElementById('link-flow-select').value = '';
+  document.getElementById('link-form-save').disabled = true;
+  document.getElementById('link-form-save').textContent = 'Save';
+  populateFlowDropdown().then(() => document.getElementById('link-jira-input').focus());
+}
+
+function closeLinkForm() {
+  document.getElementById('link-form').classList.remove('open');
+  document.getElementById('link-add-btn').style.display = '';
+}
+
+document.getElementById('link-add-btn').addEventListener('click', openLinkForm);
+document.getElementById('link-form-cancel').addEventListener('click', closeLinkForm);
+document.getElementById('link-jira-input').addEventListener('input', checkLinkFormValid);
+document.getElementById('link-flow-select').addEventListener('change', checkLinkFormValid);
+
+document.getElementById('link-form-save').addEventListener('click', async () => {
+  const jiraKey = (document.getElementById('link-jira-input').value ?? '').trim().toUpperCase();
+  const flowId  = document.getElementById('link-flow-select').value;
+  const saveBtn = document.getElementById('link-form-save');
+  const errEl   = document.getElementById('link-form-error');
+
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+  errEl.style.display = 'none';
+
+  try {
+    const res  = await fetch('/api/links', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ jiraKey, flowId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeLinkForm();
+      await loadLinks();
+    } else {
+      errEl.textContent    = data.error ?? 'Save failed';
+      errEl.style.display  = 'block';
+      saveBtn.disabled     = false;
+      saveBtn.textContent  = 'Save';
+    }
+  } catch (err) {
+    errEl.textContent    = String(err);
+    errEl.style.display  = 'block';
+    saveBtn.disabled     = false;
+    saveBtn.textContent  = 'Save';
+  }
+});
 
 // ── SSE connection ────────────────────────────────────────────────────────────
 function connect() {
