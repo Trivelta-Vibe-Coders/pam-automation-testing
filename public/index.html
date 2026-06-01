@@ -667,10 +667,6 @@ function addBullet(key, ev, text, isHistorical) {
     `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
   entry.listEl.appendChild(li);
 
-  // Scroll card into view for live events only
-  if (!isHistorical) {
-    entry.card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
 }
 
 /**
