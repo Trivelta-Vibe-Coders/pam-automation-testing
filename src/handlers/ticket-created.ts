@@ -2,20 +2,28 @@
  * Handler: jira:issue_created
  *
  * Workflow:
- * 1. Extract ticket context (summary, description as plain text, labels, components)
- * 2. Fetch all existing PAM flows
- * 3. Run semantic matching via Claude (≥70% threshold)
- *    - Match found  → augment that flow's instructions + update flow in Autosana
- *    - No match     → detect suite + generate new instructions + create flow
- * 4. Store jiraKey → flowId in flow-links store
- * 5. Post Jira comment linking to the Autosana flow
+ * 1. Build ticket context
+ * 2. Gate: does this ticket need automated test coverage?
+ *    No  → post Jira comment explaining why, done
+ *    Yes → continue
+ * 3. Fetch existing PAM flows from Autosana
+ * 4. Semantic matching via Claude
+ *    Match ≥ threshold → generate augmented instructions for the existing flow
+ *    No match          → detect best suite + generate fresh instructions
+ * 5. Send Slack notification with the recommendation (no flow is created here)
+ * 6. Post Jira comment confirming analysis was sent
+ *
+ * NOTE: Flow creation / updates are intentionally NOT performed automatically.
+ *       A human reviews the Slack recommendation and creates/updates the flow
+ *       manually in Autosana.  Once the flow exists, it can be linked via the
+ *       flow-links store and will be triggered on Dev/Stg transitions as normal.
  */
 import { JiraIssue } from '../types';
 import * as logger from '../logger';
 import * as autosana from '../services/autosana';
 import * as jiraClient from '../services/jira';
 import * as matcher from '../services/flow-matcher';
-import * as flowLinks from '../services/flow-links';
+import * as slack from '../services/slack';
 import { config } from '../config';
 
 export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
@@ -27,12 +35,12 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
   // 1. Build ticket context
   const ticket: matcher.TicketContext = {
     key,
-    summary:    fields.summary,
+    summary:     fields.summary,
     description: matcher.adfToPlainText(fields.description ?? undefined),
-    labels:     fields.labels ?? [],
-    components: (fields.components ?? []).map(c => c.name),
-    issueType:  fields.issuetype?.name ?? 'Story',
-    priority:   fields.priority?.name  ?? 'Medium',
+    labels:      fields.labels ?? [],
+    components:  (fields.components ?? []).map(c => c.name),
+    issueType:   fields.issuetype?.name ?? 'Story',
+    priority:    fields.priority?.name  ?? 'Medium',
   };
 
   // 2. Gate: does this ticket need an automated test?
@@ -40,8 +48,8 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
   try {
     gate = await matcher.shouldCreateTest(ticket);
   } catch (err) {
-    logger.warn(`Test-coverage gate failed for ${key} — defaulting to create`, { error: String(err) });
-    gate = { needed: true, reason: 'Gate check error — defaulting to create' };
+    logger.warn(`Test-coverage gate failed for ${key} — defaulting to notify`, { error: String(err) });
+    gate = { needed: true, reason: 'Gate check error — defaulting to notify' };
   }
 
   if (!gate.needed) {
@@ -54,7 +62,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
         key,
         `🤖 *PAM QA Agent* — No automated test flow needed for this ticket.\n` +
         `Reason: ${gate.reason}\n\n` +
-        `_If test coverage is required, add the label \`pam-test\` and the agent will create a flow._`,
+        `_If test coverage is required, add the label \`pam-test\` to this ticket._`,
       );
     } catch { /* ignore comment errors */ }
     return;
@@ -62,7 +70,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
 
   logger.info(`${key} — test coverage required: ${gate.reason}`, { key, reason: gate.reason });
 
-  // 4. Fetch all PAM flows
+  // 3. Fetch all PAM flows
   let allFlows: Awaited<ReturnType<typeof autosana.listAllPamFlows>>;
   try {
     allFlows = await autosana.listAllPamFlows();
@@ -72,100 +80,89 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     return;
   }
 
-  // 5. Semantic matching
-  let targetFlowId: string;
-  let targetFlowName: string;
-  let targetSuiteId: string;
-  let action: 'updated' | 'created';
+  // 4. Semantic matching + instruction generation
+  let matchFound      = false;
+  let existingFlowName:  string | undefined;
+  let existingFlowScore: number | undefined;
+  let suggestedFlowName: string | undefined;
+  let suiteName       = '';
+  let instructions    = '';
 
   try {
-    const matches = await matcher.matchFlows(ticket, allFlows);
+    const matches  = await matcher.matchFlows(ticket, allFlows);
     const bestMatch = matches[0];
 
     if (bestMatch && bestMatch.score >= config.matchThreshold) {
-      // ── Update existing flow ──────────────────────────────────────────────
+      // Existing flow is a good match — suggest updated instructions
       logger.info(
         `Match found for ${key}: "${bestMatch.flow.name}" (score ${bestMatch.score}%)`,
         { reason: bestMatch.reason },
       );
 
-      const augmented = await matcher.augmentFlowInstructions(
-        bestMatch.flow.instructions,
-        ticket,
-      );
-
-      await autosana.updateFlow(bestMatch.flow.id, { instructions: augmented });
-
-      targetFlowId   = bestMatch.flow.id;
-      targetFlowName = bestMatch.flow.name;
-      targetSuiteId  = bestMatch.flow.suite_id;
-      action         = 'updated';
+      instructions       = await matcher.augmentFlowInstructions(bestMatch.flow.instructions, ticket);
+      matchFound         = true;
+      existingFlowName   = bestMatch.flow.name;
+      existingFlowScore  = bestMatch.score;
+      suiteName          = Object.entries(config.suites)
+        .find(([, id]) => id === bestMatch.flow.suite_id)?.[0] ?? 'Unknown Suite';
 
       logger.success(
-        `Flow "${targetFlowName}" updated to cover ${key}`,
-        {
-          flowId:       targetFlowId,
-          autosanaUrl:  `${config.autosanaAppUrl}/suites/${targetSuiteId}`,
-        },
+        `Instructions drafted for existing flow "${existingFlowName}" — recommendation pending`,
+        { flowId: bestMatch.flow.id, key },
       );
     } else {
-      // ── Create new flow ───────────────────────────────────────────────────
+      // No match — suggest a brand-new flow
       logger.info(
         bestMatch
-          ? `Best match "${bestMatch.flow.name}" scored ${bestMatch.score}% (below ${config.matchThreshold}% threshold) — creating new flow`
-          : `No existing flows matched — creating new flow`,
+          ? `Best match "${bestMatch.flow.name}" scored ${bestMatch.score}% (below threshold) — drafting new flow`
+          : `No existing flows matched — drafting new flow`,
       );
 
-      const suiteName  = await matcher.detectSuite(ticket);
-      const suiteId    = config.suites[suiteName] ?? Object.values(config.suites)[0];
-      const instructions = await matcher.generateFlowInstructions(ticket);
-      const flowName     = `${key}: ${fields.summary}`.slice(0, 100);
-
-      const newFlow = await autosana.createFlow({
-        name:         flowName,
-        instructions,
-        suite_id:     suiteId,
-      });
-
-      targetFlowId   = newFlow.id;
-      targetFlowName = newFlow.name;
-      targetSuiteId  = suiteId;
-      action         = 'created';
+      suiteName          = await matcher.detectSuite(ticket);
+      instructions       = await matcher.generateFlowInstructions(ticket);
+      suggestedFlowName  = `${key}: ${fields.summary}`.slice(0, 100);
 
       logger.success(
-        `New flow "${targetFlowName}" created in suite "${suiteName}"`,
-        {
-          flowId:      targetFlowId,
-          suiteId,
-          autosanaUrl: `${config.autosanaAppUrl}/suites/${suiteId}`,
-        },
+        `Instructions drafted for new flow in suite "${suiteName}" — recommendation pending`,
+        { suggestedFlowName, suiteName, key },
       );
     }
   } catch (err) {
-    logger.error(`Flow match/create failed for ${key}`, { error: String(err) });
+    logger.error(`Flow analysis failed for ${key}`, { error: String(err), key });
     return;
   }
 
-  // 6. Persist the link
-  flowLinks.setLink({
-    jiraKey:   key,
-    flowId:    targetFlowId,
-    flowName:  targetFlowName,
-    suiteId:   targetSuiteId,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-
-  // 7. Post Jira comment
+  // 5. Ping the team via Slack
   try {
-    const verb = action === 'updated' ? 'updated to include coverage for' : 'created for';
+    await slack.notifyFlowRecommendation({
+      jiraKey:           key,
+      jiraSummary:       fields.summary,
+      issueType:         ticket.issueType,
+      gateReason:        gate.reason,
+      matchFound,
+      existingFlowName,
+      existingFlowScore,
+      suggestedFlowName,
+      suiteName,
+      instructions,
+    });
+  } catch (err) {
+    logger.warn(`Could not send Slack recommendation for ${key}`, { error: String(err), key });
+  }
+
+  // 6. Post Jira comment confirming analysis
+  try {
+    const action = matchFound
+      ? `found an existing flow that may cover this ticket ("${existingFlowName}")`
+      : `drafted instructions for a new flow in the *${suiteName}* suite`;
+
     await jiraClient.addComment(
       key,
-      `🤖 *PAM QA Agent* — Autosana flow ${verb} this ticket.\n` +
-      `Flow: "${targetFlowName}"\n` +
-      `This flow will be triggered automatically when the ticket moves to Dev or Stg.`,
+      `🤖 *PAM QA Agent* — Ticket analysed. The agent has ${action}.\n` +
+      `A Slack notification has been sent with the suggested test instructions for review.\n\n` +
+      `Once a flow is created or updated in Autosana, tests will trigger automatically when this ticket moves to Dev or Stg.`,
     );
   } catch (err) {
-    logger.warn(`Could not post Jira comment on ${key}`, { error: String(err) });
+    logger.warn(`Could not post Jira comment on ${key}`, { error: String(err), key });
   }
 }

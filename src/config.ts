@@ -51,6 +51,9 @@ export const config = {
   // Data directory for flow-link persistence
   dataDir: optional_env('DATA_DIR', '/app/data'),
 
+  // Slack
+  slackWebhookUrl: optional_env('SLACK_WEBHOOK_URL'),  // also used by pam_report.py
+
   // GitHub Actions dispatch (for post-run Slack reports)
   githubToken: optional_env('GITHUB_DISPATCH_TOKEN'),  // required for Slack results
   githubRepo:  optional_env('GITHUB_REPO', 'Trivelta-Vibe-Coders/pam-automation-testing'),

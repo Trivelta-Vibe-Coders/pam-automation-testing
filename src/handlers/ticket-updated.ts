@@ -16,7 +16,6 @@ import * as flowLinks from '../services/flow-links';
 import * as ticketStore from '../services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
-import { handleTicketCreated } from './ticket-created';
 import { config } from '../config';
 
 // Map Jira status names → Autosana environments
@@ -73,19 +72,12 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
       suiteId: link.suiteId,
     });
   } else {
-    // 2. No stored link — run the full ticket-created pipeline:
-    //    finds or creates the Autosana flow and stores the link
-    logger.info(
-      `No flow setup found for ${key} — running full ticket setup before triggering`,
+    // 2. No stored link — the team hasn't manually linked a flow yet.
+    //    Trigger all PAM suites as a fallback so tests still run.
+    logger.warn(
+      `No flow link found for ${key} — falling back to full regression (link a flow via the Flow Links panel to target a specific flow next time)`,
       { key },
     );
-    await handleTicketCreated(issue);
-
-    // Re-read; handleTicketCreated will have stored it if successful
-    link = flowLinks.getLink(key);
-    if (!link) {
-      logger.warn(`Flow setup completed but no link stored for ${key} — triggering all PAM suites`);
-    }
   }
 
   // 3. Trigger — specific flow when we have a link, full suites as fallback

@@ -372,8 +372,8 @@ function prettify(msg, details) {
   if (/^No stored flow link for/.test(msg))
     return 'No flow link found — running semantic search for best match';
 
-  if (/^No flow setup found for/.test(msg))
-    return 'No flow history found — running full ticket setup before triggering';
+  if (/^No flow link found for/.test(msg))
+    return 'No flow linked yet — running full regression as fallback';
 
   if (/^Fallback match:/.test(msg)) {
     const name  = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
@@ -383,6 +383,19 @@ function prettify(msg, details) {
 
   if (/^No high-confidence flow match for/.test(msg))
     return 'No high-confidence match — triggering all PAM suites as fallback';
+
+  if (/^Slack flow recommendation sent for/.test(msg))
+    return 'Slack notification sent — review test instructions and create flow in Autosana';
+
+  if (/^Instructions drafted for existing flow/.test(msg)) {
+    const name = msg.match(/"([^"]+)"/)?.[1] ?? 'flow';
+    return `Draft instructions prepared for existing flow "${name}"`;
+  }
+
+  if (/^Instructions drafted for new flow/.test(msg)) {
+    const suite = msg.match(/suite "([^"]+)"/)?.[1] ?? 'suite';
+    return `Draft instructions prepared for new flow in "${suite}"`;
+  }
 
   if (/^Jira comment posted on/.test(msg))
     return 'Posted run details to Jira ticket';
