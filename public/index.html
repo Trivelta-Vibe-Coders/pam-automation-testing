@@ -107,6 +107,14 @@
     .tc-key a { color:inherit; text-decoration:none; }
     .tc-key a:hover { text-decoration:underline; }
 
+    /* Jira status badge on card header */
+    .tc-jira-status { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--border); color:var(--muted); white-space:nowrap; flex-shrink:0; text-transform:uppercase; letter-spacing:.4px; }
+    .tc-jira-status.s-dev      { background:rgba(59,130,246,.15);  color:var(--blue); }
+    .tc-jira-status.s-stg      { background:rgba(99,102,241,.15);  color:var(--indigo); }
+    .tc-jira-status.s-done     { background:rgba(34,197,94,.15);   color:var(--green); }
+    .tc-jira-status.s-progress { background:rgba(234,179,8,.15);   color:var(--yellow); }
+    .tc-jira-status.s-blocked  { background:rgba(239,68,68,.12);   color:var(--red); }
+
     /* ── Done section ── */
     .tc-done-section { border:1px solid var(--border); border-radius:8px; overflow:hidden; }
     .tc-done-header { display:flex; align-items:center; gap:8px; padding:8px 14px; cursor:pointer; user-select:none; background:var(--bg2); }
@@ -553,6 +561,25 @@ function prettify(msg, details) {
   return msg;
 }
 
+/** Map a Jira status string to a CSS modifier class. */
+function jiraStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (DONE_STATUSES.test(s))                          return 's-done';
+  if (/^dev$/.test(s) || /in dev/i.test(s))           return 's-dev';
+  if (/^(stg|staging|stage)$/.test(s))                return 's-stg';
+  if (/in progress|in review|in qa/i.test(s))         return 's-progress';
+  if (/blocked|on hold/i.test(s))                     return 's-blocked';
+  return '';
+}
+
+/** Update the Jira status badge on a card entry. */
+function setCardJiraStatus(entry, status) {
+  if (!entry.jiraStatusEl || !status) return;
+  entry.jiraStatusEl.textContent  = status;
+  entry.jiraStatusEl.style.display = '';
+  entry.jiraStatusEl.className    = 'tc-jira-status ' + jiraStatusClass(status);
+}
+
 /**
  * Find or create a ticket card in the log.
  * All ticket cards start collapsed. System card is at the bottom.
@@ -583,6 +610,7 @@ function getOrCreateCard(key, isDone) {
     <div class="tc-header">
       ${keyHtml}
       <span class="tc-summary"></span>
+      ${isSystem ? '' : '<span class="tc-jira-status" style="display:none"></span>'}
       <span class="tc-status"></span>
       <span class="tc-count">0</span>
       <span class="tc-chevron">▾</span>
@@ -612,10 +640,11 @@ function getOrCreateCard(key, isDone) {
 
   const entry = {
     card,
-    listEl:    card.querySelector('.tc-bullets'),
-    countEl:   card.querySelector('.tc-count'),
-    summaryEl: card.querySelector('.tc-summary'),
-    statusEl:  card.querySelector('.tc-status'),
+    listEl:         card.querySelector('.tc-bullets'),
+    countEl:        card.querySelector('.tc-count'),
+    summaryEl:      card.querySelector('.tc-summary'),
+    statusEl:       card.querySelector('.tc-status'),
+    jiraStatusEl:   card.querySelector('.tc-jira-status'),
     count: 0,
     level: 'info',
     isDone: !!isDone,
@@ -676,10 +705,13 @@ function addBullet(key, ev, text, isHistorical) {
   entry.count++;
   entry.countEl.textContent = entry.count;
 
-  // Detect a Done-status transition so we can move the card
+  // Update Jira status badge + handle Done move
   if (key !== 'SYSTEM') {
     const toStatus = ev.details?.toStatus ? String(ev.details.toStatus) : null;
-    if (toStatus && DONE_STATUSES.test(toStatus)) markTicketDone(key);
+    if (toStatus) {
+      setCardJiraStatus(entry, toStatus);
+      if (DONE_STATUSES.test(toStatus)) markTicketDone(key);
+    }
   }
 
   // Create bullet element
@@ -760,6 +792,9 @@ async function loadTickets() {
       }
 
       const entry = getOrCreateCard(ticket.key, isDone);
+
+      // Set Jira status badge
+      if (ticket.jiraStatus) setCardJiraStatus(entry, ticket.jiraStatus);
 
       // Set title if available
       if (ticket.title) {
