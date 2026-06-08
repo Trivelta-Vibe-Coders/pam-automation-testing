@@ -154,6 +154,9 @@
     .filter-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); white-space:nowrap; }
     .filter-select { background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; padding:4px 8px; cursor:pointer; flex:1; min-width:0; }
     .filter-select:focus { outline:none; border-color:var(--indigo); }
+    .filter-toggle { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:11px; padding:4px 8px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s,background .15s; }
+    .filter-toggle:hover { border-color:var(--indigo); color:var(--indigo); }
+    .filter-toggle.active { background:rgba(99,102,241,.15); border-color:var(--indigo); color:var(--indigo); }
     .filter-clear { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:11px; padding:4px 8px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
     .filter-clear:hover { border-color:var(--red); color:var(--red); }
 
@@ -238,6 +241,7 @@
       <span class="filter-label">Filter</span>
       <select id="filter-sprint" class="filter-select"><option value="">All Sprints</option></select>
       <select id="filter-epic"   class="filter-select"><option value="">All Epics</option></select>
+      <button class="filter-toggle" id="filter-unlinked">Unlinked only</button>
       <button class="filter-clear" id="filter-clear" style="display:none">✕ Clear</button>
     </div>
     <div id="log">
@@ -314,8 +318,10 @@ let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
 
 // Filter state
 const ticketMeta       = new Map(); // key → { sprint, epic }
+const linkedKeys       = new Set(); // jiraKeys that have a flow link
 let activeSprintFilter = '';
 let activeEpicFilter   = '';
+let filterUnlinked     = false;
 let showDoneLinks      = false;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -775,10 +781,11 @@ function applyFilters() {
   let visibleDoneCount = 0;
   for (const [key, entry] of ticketCards) {
     if (key === 'SYSTEM') continue;
-    const meta     = ticketMeta.get(key) ?? {};
-    const sprintOk = !activeSprintFilter || meta.sprint === activeSprintFilter;
-    const epicOk   = !activeEpicFilter   || meta.epic   === activeEpicFilter;
-    const visible  = sprintOk && epicOk;
+    const meta       = ticketMeta.get(key) ?? {};
+    const sprintOk   = !activeSprintFilter || meta.sprint === activeSprintFilter;
+    const epicOk     = !activeEpicFilter   || meta.epic   === activeEpicFilter;
+    const unlinkedOk = !filterUnlinked     || !linkedKeys.has(key);
+    const visible    = sprintOk && epicOk && unlinkedOk;
     entry.card.style.display = visible ? '' : 'none';
     if (entry.isDone && visible) visibleDoneCount++;
   }
@@ -786,7 +793,7 @@ function applyFilters() {
   if (doneCount > 0) {
     document.getElementById('done-section').style.display = visibleDoneCount > 0 ? '' : 'none';
   }
-  const active = activeSprintFilter || activeEpicFilter;
+  const active = activeSprintFilter || activeEpicFilter || filterUnlinked;
   document.getElementById('filter-clear').style.display = active ? '' : 'none';
 }
 
@@ -821,11 +828,18 @@ document.getElementById('filter-epic').addEventListener('change', e => {
   activeEpicFilter = e.target.value;
   applyFilters();
 });
+document.getElementById('filter-unlinked').addEventListener('click', () => {
+  filterUnlinked = !filterUnlinked;
+  document.getElementById('filter-unlinked').classList.toggle('active', filterUnlinked);
+  applyFilters();
+});
 document.getElementById('filter-clear').addEventListener('click', () => {
   activeSprintFilter = '';
   activeEpicFilter   = '';
+  filterUnlinked     = false;
   document.getElementById('filter-sprint').value = '';
   document.getElementById('filter-epic').value   = '';
+  document.getElementById('filter-unlinked').classList.remove('active');
   applyFilters();
 });
 
@@ -833,6 +847,12 @@ document.getElementById('filter-clear').addEventListener('click', () => {
 async function loadLinks() {
   try {
     const links = await fetch('/api/links').then(r => r.json());
+
+    // Keep linkedKeys in sync so the unlinked filter stays accurate
+    linkedKeys.clear();
+    for (const l of links) linkedKeys.add(l.jiraKey);
+    if (filterUnlinked) applyFilters();
+
     const activeLinks = links.filter(l => !DONE_STATUSES.test(l.jiraStatus ?? ''));
     const doneLinks   = links.filter(l =>  DONE_STATUSES.test(l.jiraStatus ?? ''));
 
