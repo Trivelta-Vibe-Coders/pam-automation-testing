@@ -3,7 +3,8 @@
  * Used by both ticket-updated handler and any future direct triggers.
  */
 import { config } from '../config';
-import { triggerRun } from './autosana';
+import { triggerRun, listFlows } from './autosana';
+import * as envRestrictions from './env-restrictions';
 import * as logger from '../logger';
 
 export type TriggerEnvironment = 'staging' | 'dev';
@@ -38,19 +39,69 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
 
   let runPayload: Parameters<typeof triggerRun>[0];
 
+  // Build flow / suite list, filtering out any env-restricted flows
+  const excluded = envRestrictions.getExcludedForEnv(opts.environment);
+
   if (opts.flowIds?.length) {
+    let flowIds = opts.flowIds;
+    if (excluded.length) {
+      const before = flowIds.length;
+      flowIds = flowIds.filter(id => !excluded.includes(id));
+      if (flowIds.length < before) {
+        logger.info(
+          `Skipping ${before - flowIds.length} flow(s) excluded from ${opts.environment}`,
+          { environment: opts.environment, skipped: before - flowIds.length },
+        );
+      }
+    }
+    if (!flowIds.length) {
+      throw new Error(`All specified flows are excluded from the ${opts.environment} environment`);
+    }
     logger.info(
-      `Triggering ${opts.flowIds.length} specific flow(s) against ${opts.environment}`,
-      { environment: opts.environment, appId, flowIds: opts.flowIds, jiraKey: opts.jiraKey },
+      `Triggering ${flowIds.length} specific flow(s) against ${opts.environment}`,
+      { environment: opts.environment, appId, flowIds, jiraKey: opts.jiraKey },
     );
-    runPayload = { app_id: appId, flow_ids: opts.flowIds };
+    runPayload = { app_id: appId, flow_ids: flowIds };
   } else {
     const suiteIds = opts.suiteIds ?? Object.values(config.suites);
-    logger.info(
-      `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
-      { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
-    );
-    runPayload = { app_id: appId, suite_ids: suiteIds };
+
+    if (excluded.length) {
+      // Expand suites → individual flows so we can filter out restricted ones
+      logger.info(`Expanding suites to filter dev-excluded flows (${excluded.length} excluded)`);
+      const allowedFlowIds: string[] = [];
+      let skipped = 0;
+      for (const suiteId of suiteIds) {
+        try {
+          const flows = await listFlows(suiteId);
+          for (const f of flows) {
+            if (excluded.includes(f.id)) skipped++;
+            else allowedFlowIds.push(f.id);
+          }
+        } catch {
+          // If we can't fetch a suite's flows, skip it gracefully
+        }
+      }
+      if (skipped) {
+        logger.info(
+          `Skipping ${skipped} flow(s) excluded from ${opts.environment}`,
+          { environment: opts.environment, skipped },
+        );
+      }
+      if (!allowedFlowIds.length) {
+        throw new Error(`All flows are excluded from the ${opts.environment} environment`);
+      }
+      logger.info(
+        `Triggering ${allowedFlowIds.length} flow(s) against ${opts.environment} (expanded from ${suiteIds.length} suite(s))`,
+        { environment: opts.environment, appId, jiraKey: opts.jiraKey },
+      );
+      runPayload = { app_id: appId, flow_ids: allowedFlowIds };
+    } else {
+      logger.info(
+        `Triggering ${suiteIds.length} suite(s) against ${opts.environment}`,
+        { environment: opts.environment, appId, suiteIds, jiraKey: opts.jiraKey },
+      );
+      runPayload = { app_id: appId, suite_ids: suiteIds };
+    }
   }
 
   const result = await triggerRun(runPayload);

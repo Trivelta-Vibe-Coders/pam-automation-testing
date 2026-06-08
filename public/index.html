@@ -188,6 +188,9 @@
     .flow-name { font-size:12px; color:var(--muted); flex:1; line-height:1.4; }
     .flow-row.flow-selected .flow-name { color:var(--text); }
     .suite-loading { padding:16px; color:var(--muted); font-size:12px; text-align:center; }
+    .flow-restrict { background:none; border:1px solid transparent; border-radius:4px; color:var(--muted); font-size:10px; font-weight:600; padding:2px 6px; cursor:pointer; flex-shrink:0; transition:all .15s; white-space:nowrap; letter-spacing:.3px; }
+    .flow-restrict:hover { border-color:var(--yellow); color:var(--yellow); }
+    .flow-restrict.restricted { background:rgba(234,179,8,.12); border-color:var(--yellow); color:var(--yellow); }
 
     /* Runner controls sidebar */
     .runner-controls { width:260px; flex-shrink:0; border-left:1px solid var(--border); display:flex; flex-direction:column; padding:20px 16px; gap:16px; background:var(--bg2); overflow-y:auto; }
@@ -314,6 +317,7 @@ const selectedSuites = new Map(); // suiteId  → suiteName
 const selectedFlows  = new Map(); // flowId   → { flowId, flowName, suiteName }
 let currentEnv  = 'staging';
 let suitesLoaded = false;
+const devExcluded = new Set(); // flow IDs excluded from dev
 let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
 
 // Filter state
@@ -1087,6 +1091,10 @@ function renderSuites(data) {
                   data-suite="${esc(suite.suite_id)}"
                   data-suite-name="${esc(suite.suite_name)}" />
                 <span class="flow-name">${esc(f.name)}</span>
+                <button class="flow-restrict${devExcluded.has(f.id) ? ' restricted' : ''}"
+                  data-flow-id="${esc(f.id)}"
+                  title="${devExcluded.has(f.id) ? 'Click to allow in dev' : 'Click to exclude from dev runs'}"
+                >${devExcluded.has(f.id) ? 'Stg only' : 'Dev'}</button>
               </div>`).join('')
       }</div>`;
 
@@ -1123,6 +1131,27 @@ function renderSuites(data) {
       });
     });
 
+    // Dev-restriction toggle per flow
+    card.querySelectorAll('.flow-restrict').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const flowId  = btn.dataset.flowId;
+        const exclude = !devExcluded.has(flowId);
+        try {
+          await fetch('/api/env-restrictions', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ flowId, environment: 'dev', excluded: exclude }),
+          });
+          if (exclude) devExcluded.add(flowId);
+          else         devExcluded.delete(flowId);
+          btn.classList.toggle('restricted', exclude);
+          btn.textContent = exclude ? 'Stg only' : 'Dev';
+          btn.title       = exclude ? 'Click to allow in dev' : 'Click to exclude from dev runs';
+        } catch {}
+      });
+    });
+
     // Individual flow checkbox → select that flow; clear suite-level selections
     card.querySelectorAll('.flow-check').forEach(cb => {
       cb.addEventListener('change', e => {
@@ -1151,7 +1180,12 @@ async function loadSuites() {
   document.getElementById('suite-list').innerHTML =
     '<div class="suite-loading">Loading suites and flows from Autosana…</div>';
   try {
-    const data = await fetch('/api/suites-with-flows').then(r => r.json());
+    const [data, restrictions] = await Promise.all([
+      fetch('/api/suites-with-flows').then(r => r.json()),
+      fetch('/api/env-restrictions').then(r => r.json()),
+    ]);
+    devExcluded.clear();
+    for (const id of (restrictions.dev ?? [])) devExcluded.add(id);
     renderSuites(data);
   } catch (err) {
     document.getElementById('suite-list').innerHTML =

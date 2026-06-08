@@ -21,6 +21,7 @@ import * as ticketStore from './services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
 import * as jiraClient from './services/jira';
 import { getFlow } from './services/autosana';
+import * as envRestrictions from './services/env-restrictions';
 import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
 
@@ -138,6 +139,21 @@ app.delete('/api/links/:jiraKey', (req: Request, res: Response) => {
 // ── API: persistent ticket records ───────────────────────────────────────────
 app.get('/api/tickets', (_req: Request, res: Response) => {
   res.json(ticketStore.getAllTickets());
+});
+
+// ── API: environment restrictions ────────────────────────────────────────────
+app.get('/api/env-restrictions', (_req: Request, res: Response) => {
+  res.json(envRestrictions.getAll());
+});
+
+app.post('/api/env-restrictions', (req: Request, res: Response) => {
+  const { flowId, environment, excluded } = req.body ?? {};
+  if (!flowId || !environment || typeof excluded !== 'boolean') {
+    res.status(400).json({ error: 'flowId, environment, and excluded (boolean) are required' });
+    return;
+  }
+  envRestrictions.setExclusion(String(flowId), String(environment), excluded);
+  res.json({ ok: true });
 });
 
 // ── API: manual trigger ───────────────────────────────────────────────────────
