@@ -28,7 +28,8 @@ interface AutosanaRun {
 
 interface AutosanaRunGroup {
   name: string;   // suite name
-  url:  string;
+  id?:  string;   // suite run UUID → https://autosana.ai/runs/groups/{id}
+  url?: string;   // fallback URL from API (may be a backend URL)
   runs: AutosanaRun[];
 }
 
@@ -114,12 +115,17 @@ export function startPolling(params: {
           },
         }));
 
+        // Construct the Autosana app URL for this suite run
+        const runUrl = group.id
+          ? `https://autosana.ai/runs/groups/${group.id}`
+          : group.url ?? undefined;
+
         try {
           await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment });
           logger.success(`GitHub dispatch sent for "${suiteName}"`, {
             suiteId,
             flowCount: flows.length,
-            ...(group.url ? { runUrl: group.url } : {}),
+            ...(runUrl ? { runUrl } : {}),
           });
           dispatched++;
         } catch (err) {
