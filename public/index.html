@@ -258,6 +258,7 @@
   </div>
   <div class="links-section">
     <div class="panel-header">Flow Links <span class="count" id="links-count">0</span><button class="links-show-done" id="links-show-done" style="display:none"></button></div>
+    <button class="link-add-btn" id="link-add-btn">＋ Link a Flow</button>
     <!-- Add-link form (hidden until "+ Link a Flow" is clicked) -->
     <div class="link-form" id="link-form">
       <div>
@@ -274,8 +275,7 @@
         <button class="link-form-cancel" id="link-form-cancel">Cancel</button>
       </div>
     </div>
-    <div id="links-list"><div class="empty-state">No flow links yet.<br/>Add one with the button below.</div></div>
-    <button class="link-add-btn" id="link-add-btn">＋ Link a Flow</button>
+    <div id="links-list"><div class="empty-state">No flow links yet.<br/>Add one with the button above.</div></div>
   </div>
 </div>
 
@@ -873,7 +873,7 @@ async function loadLinks() {
     const el = document.getElementById('links-list');
     el.innerHTML = '';
     if (!displayLinks.length) {
-      el.innerHTML = '<div class="empty-state">No flow links yet.<br/>Add one with the button below.</div>';
+      el.innerHTML = '<div class="empty-state">No flow links yet.<br/>Add one with the button above.</div>';
       return;
     }
     for (const l of displayLinks) {

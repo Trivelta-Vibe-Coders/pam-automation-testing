@@ -24,10 +24,13 @@ export const config = {
 
   // PAM suite IDs
   suites: {
-    'PAM Affiliates':     optional_env('SUITE_ID_AFFILIATES',     '14fb0e17-faf3-487e-ae18-9ca01dde84c5'),
-    'PAM Users Tab':      optional_env('SUITE_ID_USERS_TAB',      '615d740d-bb78-417b-8eaa-052f82dffe0d'),
-    'PAM Casino Reports': optional_env('SUITE_ID_CASINO_REPORTS', '78b9916f-2d93-4af3-9739-98a5bae1d57a'),
-    'PAM Agent Audit Log':optional_env('SUITE_ID_AGENT_AUDIT_LOG','d489f392-5d20-4689-87ff-e8b2e0b7f0e4'),
+    'PAM Affiliates':          optional_env('SUITE_ID_AFFILIATES',         '14fb0e17-faf3-487e-ae18-9ca01dde84c5'),
+    'PAM Users Tab':           optional_env('SUITE_ID_USERS_TAB',          '615d740d-bb78-417b-8eaa-052f82dffe0d'),
+    'PAM Casino Reports':      optional_env('SUITE_ID_CASINO_REPORTS',     '78b9916f-2d93-4af3-9739-98a5bae1d57a'),
+    'PAM Agent Audit Log':     optional_env('SUITE_ID_AGENT_AUDIT_LOG',    'd489f392-5d20-4689-87ff-e8b2e0b7f0e4'),
+    'PAM KPIs':                optional_env('SUITE_ID_KPIS',               'd02667b6-39a8-42c1-a6f3-4c7b96394a48'),
+    'PAM Staff and Permissions':optional_env('SUITE_ID_STAFF_PERMISSIONS', '76fcec83-bce9-4ce5-9c10-a37096cacf2c'),
+    'PAM Withdrawal Review':   optional_env('SUITE_ID_WITHDRAWAL_REVIEW',  '2ebb9619-c286-465c-8f8d-64ca4978c219'),
   } as Record<string, string>,
 
   // Jira status names that trigger test runs
