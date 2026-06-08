@@ -63,6 +63,15 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     return;
   }
 
+  // Respect manual "no test needed" override
+  if (ticketStore.getTicket(key)?.noTestNeeded) {
+    logger.info(
+      `${key} moved to "${newStatus}" but is marked as no test needed — skipping trigger`,
+      { key, toStatus: newStatus },
+    );
+    return;
+  }
+
   logger.info(
     `${key} moved to "${newStatus}" → triggering ${env} run`,
     { key, fromStatus, toStatus: newStatus },

@@ -141,6 +141,14 @@ app.get('/api/tickets', (_req: Request, res: Response) => {
   res.json(ticketStore.getAllTickets());
 });
 
+app.post('/api/tickets/:key/no-test-needed', (req: Request, res: Response) => {
+  const key   = req.params.key.toUpperCase();
+  const value = req.body?.value !== false; // defaults to true
+  ticketStore.setNoTestNeeded(key, value);
+  logger.info(`${key} manually marked as ${value ? 'no test needed' : 'test needed'}`, { key });
+  res.json({ ok: true, key, noTestNeeded: value });
+});
+
 // ── API: environment restrictions ────────────────────────────────────────────
 app.get('/api/env-restrictions', (_req: Request, res: Response) => {
   res.json(envRestrictions.getAll());

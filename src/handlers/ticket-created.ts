@@ -50,7 +50,13 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     epic:   extractEpicRef(fields),
   });
 
-  // 2. Gate: does this ticket need an automated test?
+  // 2. Gate: check manual override first, then AI gate
+  if (ticketStore.getTicket(key)?.noTestNeeded) {
+    logger.info(`${key} — manually marked as no test needed — skipping`, { key });
+    return;
+  }
+
+  // 2b. AI gate: does this ticket need an automated test?
   let gate: Awaited<ReturnType<typeof matcher.shouldCreateTest>>;
   try {
     gate = await matcher.shouldCreateTest(ticket);

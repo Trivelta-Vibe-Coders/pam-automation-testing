@@ -17,15 +17,16 @@ const STORE_PATH = path.join(DATA_DIR, 'tickets.json');
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TicketRecord {
-  key:        string;
-  title:      string;        // extracted from "Ticket created: …" message
-  level:      ActivityLevel; // highest severity seen on this ticket
-  jiraStatus: string;        // most-recent Jira status (e.g. "Dev", "Done")
-  sprint?:    string;        // active sprint name, e.g. "Sprint 5"
-  epic?:      string;        // epic key or summary, e.g. "PAMENG-12" or "New Onboarding"
-  events:     ActivityEvent[];
-  createdAt:  string;
-  updatedAt:  string;
+  key:          string;
+  title:        string;        // extracted from "Ticket created: …" message
+  level:        ActivityLevel; // highest severity seen on this ticket
+  jiraStatus:   string;        // most-recent Jira status (e.g. "Dev", "Done")
+  sprint?:      string;        // active sprint name, e.g. "Sprint 5"
+  epic?:        string;        // epic key or summary, e.g. "PAMENG-12" or "New Onboarding"
+  noTestNeeded?: boolean;      // manually marked — skip AI gate and test triggers
+  events:       ActivityEvent[];
+  createdAt:    string;
+  updatedAt:    string;
 }
 
 // ── In-memory map ─────────────────────────────────────────────────────────────
@@ -126,6 +127,21 @@ export function updateTicketStatus(key: string, status: string): void {
     rec.jiraStatus = status;
     rec.updatedAt  = new Date().toISOString();
   }
+  saveToDisk();
+}
+
+/**
+ * Manually mark (or unmark) a ticket as not needing test coverage.
+ * When set, test triggers are skipped for this ticket.
+ */
+export function setNoTestNeeded(key: string, value: boolean): void {
+  if (!store.has(key)) {
+    const now = new Date().toISOString();
+    store.set(key, { key, title: '', level: 'info', jiraStatus: '', events: [], createdAt: now, updatedAt: now });
+  }
+  const rec = store.get(key)!;
+  rec.noTestNeeded = value || undefined; // store undefined instead of false to keep JSON clean
+  rec.updatedAt    = new Date().toISOString();
   saveToDisk();
 }
 

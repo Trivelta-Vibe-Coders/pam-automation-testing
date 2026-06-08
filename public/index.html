@@ -107,6 +107,12 @@
     .tc-key a { color:inherit; text-decoration:none; }
     .tc-key a:hover { text-decoration:underline; }
 
+    /* No-test toggle on card header */
+    .tc-no-test { flex-shrink:0; background:none; border:1px solid transparent; border-radius:999px; font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; color:var(--muted); transition:all .15s; opacity:0; white-space:nowrap; letter-spacing:.3px; }
+    .tc-header:hover .tc-no-test { opacity:1; border-color:var(--border); }
+    .tc-no-test:hover { border-color:var(--yellow) !important; color:var(--yellow); }
+    .tc-no-test.active { opacity:1; background:rgba(234,179,8,.12); border-color:var(--yellow); color:var(--yellow); }
+
     /* Jira status badge on card header */
     .tc-jira-status { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--border); color:var(--muted); white-space:nowrap; flex-shrink:0; text-transform:uppercase; letter-spacing:.4px; }
     .tc-jira-status.s-dev      { background:rgba(59,130,246,.15);  color:var(--blue); }
@@ -610,6 +616,7 @@ function getOrCreateCard(key, isDone) {
     <div class="tc-header">
       ${keyHtml}
       <span class="tc-summary"></span>
+      ${isSystem ? '' : '<button class="tc-no-test" title="Mark as no test needed">No Test</button>'}
       ${isSystem ? '' : '<span class="tc-jira-status" style="display:none"></span>'}
       <span class="tc-status"></span>
       <span class="tc-count">0</span>
@@ -638,6 +645,24 @@ function getOrCreateCard(key, isDone) {
     else        logEl.prepend(card);
   }
 
+  // Wire up the No Test toggle (stops click from bubbling to the collapse handler)
+  const noTestBtn = card.querySelector('.tc-no-test');
+  if (noTestBtn) {
+    noTestBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const nowActive = !noTestBtn.classList.contains('active');
+      try {
+        await fetch(`/api/tickets/${encodeURIComponent(key)}/no-test-needed`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ value: nowActive }),
+        });
+        noTestBtn.classList.toggle('active', nowActive);
+        noTestBtn.title = nowActive ? 'Click to re-enable testing' : 'Mark as no test needed';
+      } catch {}
+    });
+  }
+
   const entry = {
     card,
     listEl:         card.querySelector('.tc-bullets'),
@@ -645,6 +670,7 @@ function getOrCreateCard(key, isDone) {
     summaryEl:      card.querySelector('.tc-summary'),
     statusEl:       card.querySelector('.tc-status'),
     jiraStatusEl:   card.querySelector('.tc-jira-status'),
+    noTestEl:       noTestBtn,
     count: 0,
     level: 'info',
     isDone: !!isDone,
@@ -795,6 +821,12 @@ async function loadTickets() {
 
       // Set Jira status badge
       if (ticket.jiraStatus) setCardJiraStatus(entry, ticket.jiraStatus);
+
+      // Restore no-test override
+      if (ticket.noTestNeeded && entry.noTestEl) {
+        entry.noTestEl.classList.add('active');
+        entry.noTestEl.title = 'Click to re-enable testing';
+      }
 
       // Set title if available
       if (ticket.title) {
