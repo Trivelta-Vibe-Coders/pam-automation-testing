@@ -142,6 +142,27 @@ export function startPolling(params: {
         );
       }
 
+      // ── Structured results event for the Railway activity log ───────────────
+      const allResults = groups
+        .filter(g => suiteIdForName(g.name))
+        .map(g => {
+          const runUrl = g.id ? `https://autosana.ai/runs/groups/${g.id}` : g.url ?? undefined;
+          const flows  = (g.runs ?? []).map(r => normaliseStatus(r.status));
+          const passed = flows.filter(s => s === 'passed').length;
+          const failed = flows.filter(s => s !== 'passed').length;
+          return { suiteName: g.name, runUrl, passed, failed };
+        });
+
+      if (allResults.length) {
+        const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
+        const totalFailed = allResults.reduce((s, r) => s + r.failed, 0);
+        const logFn = totalFailed === 0 ? logger.success : logger.warn;
+        logFn(
+          `Test results: ${totalPassed} passed, ${totalFailed} failed`,
+          { triggeredBy, batchId, testResults: allResults },
+        );
+      }
+
       return;  // done — exit the polling loop
     }
 

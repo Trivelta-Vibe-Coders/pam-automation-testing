@@ -180,8 +180,19 @@
     .filter-toggle { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:11px; padding:4px 8px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s,background .15s; }
     .filter-toggle:hover { border-color:var(--indigo); color:var(--indigo); }
     .filter-toggle.active { background:rgba(99,102,241,.15); border-color:var(--indigo); color:var(--indigo); }
+    .filter-search { background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; padding:4px 8px; width:130px; flex-shrink:0; }
+    .filter-search:focus { outline:none; border-color:var(--indigo); }
     .filter-clear { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:11px; padding:4px 8px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
     .filter-clear:hover { border-color:var(--red); color:var(--red); }
+
+    /* ── Inline test results in bullet ── */
+    .tc-results { margin-top:6px; display:flex; flex-direction:column; gap:3px; }
+    .tc-results-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0; }
+    .tc-results-name { flex:1; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .tc-results-p { color:var(--green); font-weight:700; flex-shrink:0; min-width:28px; text-align:right; }
+    .tc-results-f { color:var(--red); font-weight:700; flex-shrink:0; min-width:28px; text-align:right; }
+    .tc-results-p.zero { color:var(--muted); font-weight:normal; }
+    .tc-results-f.zero { color:var(--muted); font-weight:normal; }
 
     /* ── Done links in sidebar ── */
     .link-done { opacity:.5; }
@@ -264,7 +275,7 @@
       Activity Log <span class="count" id="event-count">0</span>
     </div>
     <div class="filter-bar">
-      <span class="filter-label">Filter</span>
+      <input type="text" id="filter-search" class="filter-search" placeholder="Search tickets…" autocomplete="off" />
       <select id="filter-sprint" class="filter-select"><option value="">All Sprints</option></select>
       <select id="filter-epic"   class="filter-select"><option value="">All Epics</option></select>
       <button class="filter-toggle" id="filter-unlinked">Unlinked only</button>
@@ -352,6 +363,7 @@ const linkedKeys       = new Set(); // jiraKeys that have a flow link
 let activeSprintFilter = '';
 let activeEpicFilter   = '';
 let filterUnlinked     = false;
+let searchQuery        = '';
 let showDoneLinks      = false;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -560,6 +572,12 @@ function prettify(msg, details) {
 
   if (/^Batch \S+ timed out/.test(msg))
     return 'Test run timed out — no Slack report sent';
+
+  if (/^Test results: \d+ passed, \d+ failed/.test(msg)) {
+    const passed = msg.match(/(\d+) passed/)?.[1] ?? '0';
+    const failed = msg.match(/(\d+) failed/)?.[1] ?? '0';
+    return `Test results — ${passed} passed · ${failed} failed`;
+  }
 
   if (/^Manual run triggered:/.test(msg)) {
     const n   = msg.match(/(\d+) suite/)?.[1] ?? '?';
@@ -771,6 +789,29 @@ function addBullet(key, ev, text, isHistorical) {
       (errorDetail ? `<span class="tc-bullet-detail ${ev.level}">${esc(errorDetail)}</span>` : '') +
     `</span>` +
     `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
+
+  // Inline test results table (from batch-poller structured event)
+  if (ev.details?.testResults && Array.isArray(ev.details.testResults)) {
+    const resultsEl = document.createElement('div');
+    resultsEl.className = 'tc-results';
+    for (const suite of ev.details.testResults) {
+      const row = document.createElement('div');
+      row.className = 'tc-results-row';
+      const pCls = suite.passed > 0 ? 'tc-results-p' : 'tc-results-p zero';
+      const fCls = suite.failed > 0 ? 'tc-results-f' : 'tc-results-f zero';
+      const link = suite.runUrl
+        ? ` <a class="tc-bullet-link" href="${esc(suite.runUrl)}" target="_blank" rel="noopener">↗</a>`
+        : '';
+      row.innerHTML =
+        `<span class="tc-results-name">${esc(suite.suiteName)}</span>` +
+        `<span class="${pCls}">${suite.passed}✓</span>` +
+        `<span class="${fCls}">${suite.failed}✗</span>` +
+        link;
+      resultsEl.appendChild(row);
+    }
+    li.querySelector('.tc-bullet-body').appendChild(resultsEl);
+  }
+
   entry.listEl.appendChild(li);
 
 }
@@ -855,6 +896,16 @@ async function loadTickets() {
     }
     // Populate sprint/epic filter dropdowns from loaded metadata
     populateFilterDropdowns();
+
+    // Auto-select current sprint on first load (user can clear it)
+    if (!activeSprintFilter) {
+      const current = detectCurrentSprint();
+      if (current) {
+        activeSprintFilter = current;
+        document.getElementById('filter-sprint').value = current;
+        applyFilters();
+      }
+    }
   } catch {}
 }
 
@@ -868,7 +919,9 @@ function applyFilters() {
     const sprintOk   = !activeSprintFilter || meta.sprint === activeSprintFilter;
     const epicOk     = !activeEpicFilter   || meta.epic   === activeEpicFilter;
     const unlinkedOk = !filterUnlinked     || (!linkedKeys.has(key) && !entry.noTestEl?.classList.contains('active'));
-    const visible    = sprintOk && epicOk && unlinkedOk;
+    const searchOk   = !searchQuery        || key.toLowerCase().includes(searchQuery) ||
+                       (entry.summaryEl?.textContent ?? '').toLowerCase().includes(searchQuery);
+    const visible    = sprintOk && epicOk && unlinkedOk && searchOk;
     entry.card.style.display = visible ? '' : 'none';
     if (entry.isDone && visible) visibleDoneCount++;
   }
@@ -876,16 +929,29 @@ function applyFilters() {
   if (doneCount > 0) {
     document.getElementById('done-section').style.display = visibleDoneCount > 0 ? '' : 'none';
   }
-  const active = activeSprintFilter || activeEpicFilter || filterUnlinked;
+  const active = activeSprintFilter || activeEpicFilter || filterUnlinked || searchQuery;
   document.getElementById('filter-clear').style.display = active ? '' : 'none';
+}
+
+function detectCurrentSprint() {
+  // Return the sprint with the most active (non-done) tickets
+  const counts = new Map();
+  for (const [key, meta] of ticketMeta) {
+    if (!meta.sprint) continue;
+    if (ticketCards.get(key)?.isDone) continue;
+    counts.set(meta.sprint, (counts.get(meta.sprint) ?? 0) + 1);
+  }
+  if (!counts.size) return null;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
 function populateFilterDropdowns() {
   const sprints = new Set();
   const epics   = new Set();
-  for (const [, meta] of ticketMeta) {
+  for (const [key, meta] of ticketMeta) {
     if (meta.sprint) sprints.add(meta.sprint);
-    if (meta.epic)   epics.add(meta.epic);
+    // Only include epics where at least one ticket with that epic is still active
+    if (meta.epic && !ticketCards.get(key)?.isDone) epics.add(meta.epic);
   }
   const sprintSel = document.getElementById('filter-sprint');
   const epicSel   = document.getElementById('filter-epic');
@@ -903,6 +969,10 @@ function populateFilterDropdowns() {
   if ([...epics].includes(prevEpic))     epicSel.value   = prevEpic;
 }
 
+document.getElementById('filter-search').addEventListener('input', e => {
+  searchQuery = e.target.value.trim().toLowerCase();
+  applyFilters();
+});
 document.getElementById('filter-sprint').addEventListener('change', e => {
   activeSprintFilter = e.target.value;
   applyFilters();
@@ -920,8 +990,10 @@ document.getElementById('filter-clear').addEventListener('click', () => {
   activeSprintFilter = '';
   activeEpicFilter   = '';
   filterUnlinked     = false;
-  document.getElementById('filter-sprint').value = '';
-  document.getElementById('filter-epic').value   = '';
+  searchQuery        = '';
+  document.getElementById('filter-sprint').value  = '';
+  document.getElementById('filter-epic').value    = '';
+  document.getElementById('filter-search').value  = '';
   document.getElementById('filter-unlinked').classList.remove('active');
   applyFilters();
 });
