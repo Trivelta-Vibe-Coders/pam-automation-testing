@@ -45,7 +45,8 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     priority:    fields.priority?.name  ?? 'Medium',
   };
 
-  // 1b. Persist sprint / epic so the UI can filter by them
+  // 1b. Persist initial Jira status + sprint / epic so the UI can show them
+  ticketStore.updateTicketStatus(key, fields.status.name);
   const epicRef = extractEpicRef(fields);
   ticketStore.updateTicketMeta(key, {
     sprint:         extractSprintName(fields),

@@ -13,15 +13,23 @@ import { extractSprintName, isSprintActive, extractEpicRef } from './jira-fields
 import * as logger from '../logger';
 
 export async function backfillTicketMeta(): Promise<void> {
-  // ── Pass 1: fill sprint/epic for tickets missing that data ──────────────────
-  const missing = ticketStore.getAllTickets().filter(t => !t.sprint && !t.epic);
+  // ── Pass 1: fetch Jira for tickets missing sprint/epic/status ────────────────
+  // Catches tickets created before these fields were persisted, or tickets
+  // whose status was never set (no status-change webhook received yet).
+  const missing = ticketStore.getAllTickets().filter(
+    t => !t.sprint || !t.epic || !t.jiraStatus,
+  );
 
   if (missing.length) {
-    logger.info(`Backfilling sprint/epic metadata for ${missing.length} ticket(s)…`);
+    logger.info(`Backfilling metadata for ${missing.length} ticket(s)…`);
     let updated = 0;
     for (const ticket of missing) {
       try {
         const issue  = await jiraClient.getIssue(ticket.key);
+        // Always store the current Jira status (fills blank badges)
+        if (!ticket.jiraStatus) {
+          ticketStore.updateTicketStatus(ticket.key, issue.fields.status.name);
+        }
         const sprint = extractSprintName(issue.fields);
         const epic   = extractEpicRef(issue.fields);
         if (sprint || epic) {
@@ -30,14 +38,14 @@ export async function backfillTicketMeta(): Promise<void> {
             sprintIsActive: isSprintActive(issue.fields),
             epic,
           });
-          updated++;
         }
+        updated++;
       } catch {
         // Non-fatal — skip tickets we can't fetch (e.g. deleted or access denied)
       }
       await new Promise<void>(r => setTimeout(r, 300));
     }
-    if (updated) logger.info(`Sprint/epic backfill complete — updated ${updated} ticket(s)`);
+    if (updated) logger.info(`Metadata backfill complete — updated ${updated} ticket(s)`);
   }
 
   // ── Pass 2: fetch Jira status for epics that don't have it yet ───────────────
