@@ -159,10 +159,10 @@
     .link-flow-search { margin-bottom:4px; }
     .link-flow-picker { border:1px solid var(--border); border-radius:5px; background:var(--bg2); max-height:180px; overflow-y:auto; }
     .link-flow-group-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:6px 10px 2px; display:block; }
-    .link-flow-option { display:flex; align-items:center; gap:8px; padding:5px 10px; cursor:pointer; transition:background .1s; }
+    .link-flow-option { display:flex; align-items:center; gap:8px; padding:5px 10px; cursor:pointer; transition:background .1s; min-width:0; }
     .link-flow-option:hover { background:var(--bg3); }
-    .link-flow-option input[type="checkbox"] { accent-color:var(--indigo); cursor:pointer; flex-shrink:0; }
-    .link-flow-option span { font-size:12px; color:var(--text); line-height:1.4; }
+    .link-flow-option input[type="checkbox"] { accent-color:var(--indigo); cursor:pointer; flex-shrink:0; width:13px; height:13px; }
+    .link-flow-option span { font-size:12px; color:var(--text); line-height:1.4; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .link-flow-picker-msg { padding:10px; color:var(--muted); font-size:12px; text-align:center; }
     .link-form-row { display:flex; gap:6px; }
     .link-form-save { flex:1; padding:7px; background:var(--indigo); color:#fff; border:none; border-radius:5px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s; }
