@@ -48,7 +48,24 @@ export async function backfillTicketMeta(): Promise<void> {
     if (updated) logger.info(`Metadata backfill complete — updated ${updated} ticket(s)`);
   }
 
-  // ── Pass 2: fetch Jira status for epics that don't have it yet ───────────────
+  // ── Pass 2: fill blank titles from Jira summary ──────────────────────────────
+  const noTitle = ticketStore.getAllTickets().filter(t => !t.title);
+
+  if (noTitle.length) {
+    logger.info(`Backfilling titles for ${noTitle.length} ticket(s)…`);
+    let titleUpdated = 0;
+    for (const ticket of noTitle) {
+      try {
+        const issue = await jiraClient.getIssue(ticket.key);
+        ticketStore.updateTicketTitle(ticket.key, issue.fields.summary);
+        titleUpdated++;
+      } catch { /* non-fatal */ }
+      await new Promise<void>(r => setTimeout(r, 300));
+    }
+    if (titleUpdated) logger.info(`Title backfill complete — updated ${titleUpdated} ticket(s)`);
+  }
+
+  // ── Pass 3: fetch Jira status for epics that don't have it yet ───────────────
   const needEpicStatus = ticketStore.getAllTickets().filter(t => t.epic && !t.epicStatus);
 
   if (needEpicStatus.length) {

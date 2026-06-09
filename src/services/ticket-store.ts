@@ -148,6 +148,19 @@ export function setNoTestNeeded(key: string, value: boolean): void {
 }
 
 /**
+ * Set the display title for a ticket (backfill from Jira summary).
+ * Only writes if the title is currently blank.
+ */
+export function updateTicketTitle(key: string, title: string): void {
+  if (!store.has(key)) return; // only update existing records
+  const rec = store.get(key)!;
+  if (rec.title) return;       // already set — don't overwrite
+  rec.title     = title;
+  rec.updatedAt = new Date().toISOString();
+  saveToDisk();
+}
+
+/**
  * Update sprint / epic metadata for a ticket.
  * Called when a webhook payload includes those custom fields.
  */
