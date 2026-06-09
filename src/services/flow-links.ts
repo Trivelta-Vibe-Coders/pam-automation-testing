@@ -1,31 +1,43 @@
 /**
- * Persistent store: Jira issue key → Autosana flow ID.
+ * Persistent store: Jira issue key → one or more Autosana flows.
  *
  * Backed by an in-memory Map, synced to DATA_DIR/flow-links.json.
- * If the file doesn't exist (fresh deploy), the map starts empty.
- * On restart, existing links are restored from the JSON file.
  *
- * Railway note: mount a Railway Volume at /app/data to survive redeploys.
+ * Migration: handles the old single-flow format (top-level flowId/flowName/suiteId)
+ * and converts it to the new multi-flow format ({ flows: FlowEntry[] }) on load.
  */
 import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
-import { FlowLink } from '../types';
+import { FlowLink, FlowEntry } from '../types';
 
 const STORE_PATH = path.join(config.dataDir, 'flow-links.json');
 
-// in-memory map: jiraKey → FlowLink
 const store = new Map<string, FlowLink>();
+
+// ── Migration ─────────────────────────────────────────────────────────────────
+
+/** Convert old single-flow records to the new multi-flow shape. */
+function migrate(raw: any[]): FlowLink[] {
+  return raw.map(item => {
+    if (Array.isArray(item.flows)) return item as FlowLink;
+    // Old format: top-level flowId/flowName/suiteId
+    return {
+      jiraKey:   item.jiraKey,
+      flows:     [{ flowId: item.flowId, flowName: item.flowName, suiteId: item.suiteId }],
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    } as FlowLink;
+  });
+}
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 function loadFromDisk(): void {
   try {
     if (!fs.existsSync(STORE_PATH)) return;
-    const raw: FlowLink[] = JSON.parse(fs.readFileSync(STORE_PATH, 'utf-8'));
-    for (const link of raw) {
-      store.set(link.jiraKey, link);
-    }
+    const raw = JSON.parse(fs.readFileSync(STORE_PATH, 'utf-8'));
+    for (const link of migrate(raw)) store.set(link.jiraKey, link);
     console.log(`[flow-links] Loaded ${store.size} link(s) from ${STORE_PATH}`);
   } catch (err) {
     console.warn(`[flow-links] Could not load ${STORE_PATH}:`, err);
@@ -41,14 +53,52 @@ function saveToDisk(): void {
   }
 }
 
-// Load on module init
 loadFromDisk();
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function setLink(link: FlowLink): void {
-  store.set(link.jiraKey, link);
-  saveToDisk();
+/**
+ * Add a flow to a ticket's link list.
+ * Creates the record if it doesn't exist; ignores duplicates (same flowId).
+ */
+export function addFlow(jiraKey: string, entry: FlowEntry): FlowLink {
+  const now = new Date().toISOString();
+  if (!store.has(jiraKey)) {
+    store.set(jiraKey, { jiraKey, flows: [], createdAt: now, updatedAt: now });
+  }
+  const link = store.get(jiraKey)!;
+  if (!link.flows.find(f => f.flowId === entry.flowId)) {
+    link.flows.push(entry);
+    link.updatedAt = now;
+    saveToDisk();
+  }
+  return link;
+}
+
+/**
+ * Remove a single flow from a ticket's link list.
+ * Deletes the whole record if it was the last flow.
+ * Returns true if anything was removed.
+ */
+export function removeFlow(jiraKey: string, flowId: string): boolean {
+  const link = store.get(jiraKey);
+  if (!link) return false;
+  const before = link.flows.length;
+  link.flows = link.flows.filter(f => f.flowId !== flowId);
+  if (link.flows.length === 0) {
+    store.delete(jiraKey);
+  } else {
+    link.updatedAt = new Date().toISOString();
+  }
+  if (link.flows.length !== before) { saveToDisk(); return true; }
+  return false;
+}
+
+/** Remove all flows for a ticket. */
+export function deleteLink(jiraKey: string): boolean {
+  const deleted = store.delete(jiraKey);
+  if (deleted) saveToDisk();
+  return deleted;
 }
 
 export function getLink(jiraKey: string): FlowLink | undefined {
@@ -57,10 +107,4 @@ export function getLink(jiraKey: string): FlowLink | undefined {
 
 export function getAllLinks(): FlowLink[] {
   return [...store.values()];
-}
-
-export function deleteLink(jiraKey: string): boolean {
-  const deleted = store.delete(jiraKey);
-  if (deleted) saveToDisk();
-  return deleted;
 }

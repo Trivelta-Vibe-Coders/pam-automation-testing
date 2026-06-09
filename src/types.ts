@@ -99,11 +99,15 @@ export interface FlowMatch {
   reason: string;
 }
 
-export interface FlowLink {
-  jiraKey: string;
-  flowId: string;
+export interface FlowEntry {
+  flowId:   string;
   flowName: string;
-  suiteId: string;
+  suiteId:  string;
+}
+
+export interface FlowLink {
+  jiraKey:   string;
+  flows:     FlowEntry[];
   createdAt: string;
   updatedAt: string;
 }

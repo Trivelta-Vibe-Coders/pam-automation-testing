@@ -81,9 +81,9 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   let link = flowLinks.getLink(key);
 
   if (link) {
-    logger.info(`Found stored flow link for ${key}: "${link.flowName}"`, {
-      flowId:  link.flowId,
-      suiteId: link.suiteId,
+    const names = link.flows.map(f => `"${f.flowName}"`).join(', ');
+    logger.info(`Found ${link.flows.length} linked flow(s) for ${key}: ${names}`, {
+      flowIds: link.flows.map(f => f.flowId),
     });
   } else {
     // 2. No stored link — the team hasn't manually linked a flow yet.
@@ -99,7 +99,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   try {
     result = await triggerFlows({
       environment: env,
-      ...(link ? { flowIds: [link.flowId] } : {}),
+      ...(link ? { flowIds: link.flows.map(f => f.flowId) } : {}),
       jiraKey: key,
     });
   } catch (err) {
@@ -120,7 +120,11 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   // 5. Post Jira comment
   try {
-    const whatRan = link ? `Flow: "${link.flowName}"` : 'all PAM suites (no flow link found)';
+    const whatRan = link
+      ? link.flows.length === 1
+        ? `Flow: "${link.flows[0].flowName}"`
+        : `Flows: ${link.flows.map(f => `"${f.flowName}"`).join(', ')}`
+      : 'all PAM suites (no flow link found)';
 
     await jiraClient.addComment(
       key,

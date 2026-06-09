@@ -107,29 +107,36 @@ app.post('/api/links', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const flow = await getFlow(String(flowId));
+    const flow      = await getFlow(String(flowId));
     const suiteName = Object.entries(config.suites).find(([, id]) => id === flow.suite_id)?.[0] ?? '';
-    const link: import('./types').FlowLink = {
-      jiraKey:   String(jiraKey).toUpperCase(),
-      flowId:    flow.id,
-      flowName:  flow.name,
-      suiteId:   flow.suite_id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    flowLinks.setLink(link);
-    logger.success(`Flow link created: ${link.jiraKey} → "${flow.name}"`, { jiraKey: link.jiraKey, flowId: flow.id });
+    const key       = String(jiraKey).toUpperCase();
+    const link      = flowLinks.addFlow(key, { flowId: flow.id, flowName: flow.name, suiteId: flow.suite_id });
+    logger.success(`Flow link added: ${key} → "${flow.name}"`, { jiraKey: key, flowId: flow.id });
     res.json({ ok: true, link, suiteName });
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err) });
   }
 });
 
+// Remove a single flow from a ticket's link list
+app.delete('/api/links/:jiraKey/flows/:flowId', (req: Request, res: Response) => {
+  const jiraKey = req.params.jiraKey.toUpperCase();
+  const flowId  = req.params.flowId;
+  const removed = flowLinks.removeFlow(jiraKey, flowId);
+  if (removed) {
+    logger.info(`Flow removed from link: ${jiraKey} → ${flowId}`);
+    res.json({ ok: true });
+  } else {
+    res.status(404).json({ ok: false, error: 'Link or flow not found' });
+  }
+});
+
+// Remove all flows for a ticket
 app.delete('/api/links/:jiraKey', (req: Request, res: Response) => {
   const { jiraKey } = req.params;
   const deleted = flowLinks.deleteLink(jiraKey.toUpperCase());
   if (deleted) {
-    logger.info(`Flow link removed: ${jiraKey}`);
+    logger.info(`All flow links removed for: ${jiraKey}`);
     res.json({ ok: true });
   } else {
     res.status(404).json({ ok: false, error: 'Link not found' });
