@@ -346,7 +346,7 @@
 <script>
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function fmtTime(iso) { const d=new Date(iso); return d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
+function fmtTime(iso) { const d=new Date(iso); return d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
