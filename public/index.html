@@ -927,7 +927,12 @@ function applyFilters() {
     if (key === 'SYSTEM') continue;
     const meta       = ticketMeta.get(key) ?? {};
     const sprintOk   = !activeSprintFilter || meta.sprint === activeSprintFilter;
-    const epicOk     = !activeEpicFilter   || meta.epic   === activeEpicFilter;
+    const epicOk     = !activeEpicFilter   || (() => {
+      if (meta.epic === activeEpicFilter) return true; // direct match
+      // activeEpicFilter is a summary — also match if meta.epic is the key for that summary
+      const match = inProgressEpics.find(e => e.summary === activeEpicFilter);
+      return !!match && meta.epic === match.key;
+    })();
     const unlinkedOk = !filterUnlinked     || (!linkedKeys.has(key) && !entry.noTestEl?.classList.contains('active'));
     const searchOk   = !searchQuery        || key.toLowerCase().includes(searchQuery) ||
                        (entry.summaryEl?.textContent ?? '').toLowerCase().includes(searchQuery);
@@ -966,11 +971,11 @@ function populateFilterDropdowns() {
   for (const [key, meta] of ticketMeta) {
     if (meta.sprint) sprints.add(meta.sprint);
     if (meta.epic) {
-      // Only include epics confirmed in-progress by Jira (matched by key OR summary)
-      const isActive = inProgressEpics.some(e =>
+      // Match by key OR summary; always add the canonical summary as the display value
+      const match = inProgressEpics.find(e =>
         meta.epic === e.key || meta.epic === e.summary
       );
-      if (isActive) epics.add(meta.epic);
+      if (match) epics.add(match.summary);
     }
   }
   const sprintSel = document.getElementById('filter-sprint');
