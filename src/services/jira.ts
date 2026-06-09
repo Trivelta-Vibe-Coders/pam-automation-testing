@@ -47,7 +47,7 @@ export async function searchIssues(
   fields: string[] = ['summary', 'status'],
   maxResults = 100,
 ): Promise<JiraIssue[]> {
-  const data = await api<{ issues?: JiraIssue[] }>('POST', '/search', {
+  const data = await api<{ issues?: JiraIssue[] }>('POST', '/search/jql', {
     jql,
     fields,
     maxResults,
