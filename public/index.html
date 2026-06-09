@@ -358,13 +358,14 @@ const devExcluded = new Set(); // flow IDs excluded from dev
 let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
 
 // Filter state
-const ticketMeta       = new Map(); // key → { sprint, epic }
+const ticketMeta       = new Map(); // key → { sprint, epic, epicStatus }
 const linkedKeys       = new Set(); // jiraKeys that have a flow link
 let activeSprintFilter = '';
 let activeEpicFilter   = '';
 let filterUnlinked     = false;
 let searchQuery        = '';
 let showDoneLinks      = false;
+let inProgressEpics    = []; // [{ key, summary }] — fetched live from Jira
 
 // ── Config ────────────────────────────────────────────────────────────────────
 async function loadConfig() {
@@ -899,7 +900,10 @@ async function loadTickets() {
         addBullet(ticket.key, ev, text, true);
       }
     }
-    // Populate sprint/epic filter dropdowns from loaded metadata
+    // Fetch in-progress epics from Jira, then populate dropdowns
+    try {
+      inProgressEpics = await fetch('/api/epics').then(r => r.json());
+    } catch { inProgressEpics = []; }
     populateFilterDropdowns();
 
     // Auto-select current sprint on first load (user can clear it)
@@ -961,15 +965,11 @@ function populateFilterDropdowns() {
   for (const [key, meta] of ticketMeta) {
     if (meta.sprint) sprints.add(meta.sprint);
     if (meta.epic) {
-      if (meta.epicStatus) {
-        // We have the epic's actual Jira status — only show if it's in progress
-        if (/in.?progress|in.?review|in.?qa|active/i.test(meta.epicStatus)) {
-          epics.add(meta.epic);
-        }
-      } else {
-        // epicStatus not yet fetched — fall back to excluding only done sub-tickets
-        if (!ticketCards.get(key)?.isDone) epics.add(meta.epic);
-      }
+      // Only include epics confirmed in-progress by Jira (matched by key OR summary)
+      const isActive = inProgressEpics.some(e =>
+        meta.epic === e.key || meta.epic === e.summary
+      );
+      if (isActive) epics.add(meta.epic);
     }
   }
   const sprintSel = document.getElementById('filter-sprint');

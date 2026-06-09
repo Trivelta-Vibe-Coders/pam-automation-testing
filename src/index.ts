@@ -148,6 +148,20 @@ app.get('/api/tickets', (_req: Request, res: Response) => {
   res.json(ticketStore.getAllTickets());
 });
 
+// ── API: in-progress epics (live from Jira) ───────────────────────────────────
+app.get('/api/epics', async (_req: Request, res: Response) => {
+  try {
+    const issues = await jiraClient.searchIssues(
+      `project = ${config.jiraProject} AND issuetype = Epic AND status = "In Progress" ORDER BY updated DESC`,
+      ['summary', 'status'],
+      200,
+    );
+    res.json(issues.map(i => ({ key: i.key, summary: i.fields.summary })));
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.post('/api/tickets/:key/no-test-needed', (req: Request, res: Response) => {
   const key   = req.params.key.toUpperCase();
   const value = req.body?.value !== false; // defaults to true

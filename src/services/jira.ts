@@ -38,6 +38,23 @@ export async function getIssue(issueKey: string): Promise<JiraIssue> {
   return api<JiraIssue>('GET', `/issue/${encodeURIComponent(issueKey)}`);
 }
 
+/**
+ * Search Jira issues using JQL.
+ * Returns up to `maxResults` issues (default 100).
+ */
+export async function searchIssues(
+  jql: string,
+  fields: string[] = ['summary', 'status'],
+  maxResults = 100,
+): Promise<JiraIssue[]> {
+  const data = await api<{ issues?: JiraIssue[] }>('POST', '/search', {
+    jql,
+    fields,
+    maxResults,
+  });
+  return data.issues ?? [];
+}
+
 // ── Comments ──────────────────────────────────────────────────────────────────
 
 /**
