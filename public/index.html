@@ -154,8 +154,16 @@
     .link-form { padding:8px; border-bottom:1px solid var(--border); display:none; flex-direction:column; gap:8px; background:var(--bg); }
     .link-form.open { display:flex; }
     .link-form label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
-    .link-form input, .link-form select { width:100%; padding:7px 10px; background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; }
-    .link-form input:focus, .link-form select:focus { outline:none; border-color:var(--indigo); }
+    .link-form input { width:100%; padding:7px 10px; background:var(--bg2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-size:12px; }
+    .link-form input:focus { outline:none; border-color:var(--indigo); }
+    .link-flow-search { margin-bottom:4px; }
+    .link-flow-picker { border:1px solid var(--border); border-radius:5px; background:var(--bg2); max-height:180px; overflow-y:auto; }
+    .link-flow-group-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:6px 10px 2px; display:block; }
+    .link-flow-option { display:flex; align-items:center; gap:8px; padding:5px 10px; cursor:pointer; transition:background .1s; }
+    .link-flow-option:hover { background:var(--bg3); }
+    .link-flow-option input[type="checkbox"] { accent-color:var(--indigo); cursor:pointer; flex-shrink:0; }
+    .link-flow-option span { font-size:12px; color:var(--text); line-height:1.4; }
+    .link-flow-picker-msg { padding:10px; color:var(--muted); font-size:12px; text-align:center; }
     .link-form-row { display:flex; gap:6px; }
     .link-form-save { flex:1; padding:7px; background:var(--indigo); color:#fff; border:none; border-radius:5px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s; }
     .link-form-save:hover:not(:disabled) { opacity:.85; }
@@ -284,8 +292,11 @@
         <input type="text" id="link-jira-input" placeholder="PAMENG-123" autocomplete="off" spellcheck="false" />
       </div>
       <div>
-        <label for="link-flow-select">Flow</label>
-        <select id="link-flow-select"><option value="">— select a flow —</option></select>
+        <label>Flows</label>
+        <input type="text" id="link-flow-search" class="link-flow-search" placeholder="Search flows…" autocomplete="off" />
+        <div class="link-flow-picker" id="link-flow-picker">
+          <div class="link-flow-picker-msg">Loading…</div>
+        </div>
       </div>
       <div id="link-form-error" class="link-form-error" style="display:none"></div>
       <div class="link-form-row">
@@ -990,37 +1001,48 @@ document.getElementById('links-show-done').addEventListener('click', () => {
 });
 
 // ── Link form ─────────────────────────────────────────────────────────────────
-let flowDropdownLoaded = false;
+let flowPickerLoaded = false;
 
-async function populateFlowDropdown() {
-  const sel = document.getElementById('link-flow-select');
-  if (flowDropdownLoaded) return;
-  sel.innerHTML = '<option value="">Loading flows…</option>';
+async function populateFlowPicker() {
+  const picker = document.getElementById('link-flow-picker');
+  if (flowPickerLoaded) return;
+  picker.innerHTML = '<div class="link-flow-picker-msg">Loading flows…</div>';
   try {
     const suites = await fetch('/api/suites-with-flows').then(r => r.json());
-    sel.innerHTML = '<option value="">— select a flow —</option>';
+    picker.innerHTML = '';
     for (const suite of suites) {
       if (!suite.flows.length) continue;
-      const grp = document.createElement('optgroup');
-      grp.label = suite.suite_name;
+      const grp = document.createElement('div');
+      grp.className = 'link-flow-group';
+      grp.innerHTML = `<span class="link-flow-group-label">${esc(suite.suite_name)}</span>`;
       for (const f of suite.flows) {
-        const opt = document.createElement('option');
-        opt.value = f.id;
-        opt.textContent = f.name;
-        grp.appendChild(opt);
+        const lbl = document.createElement('label');
+        lbl.className = 'link-flow-option';
+        lbl.innerHTML =
+          `<input type="checkbox" value="${esc(f.id)}" data-name="${esc(f.name)}" />` +
+          `<span>${esc(f.name)}</span>`;
+        lbl.querySelector('input').addEventListener('change', checkLinkFormValid);
+        grp.appendChild(lbl);
       }
-      sel.appendChild(grp);
+      picker.appendChild(grp);
     }
-    flowDropdownLoaded = true;
+    if (!picker.children.length) {
+      picker.innerHTML = '<div class="link-flow-picker-msg">No flows found</div>';
+    }
+    flowPickerLoaded = true;
   } catch {
-    sel.innerHTML = '<option value="">Failed to load flows</option>';
+    picker.innerHTML = '<div class="link-flow-picker-msg">Failed to load flows</div>';
   }
 }
 
+function checkedFlows() {
+  return [...document.querySelectorAll('#link-flow-picker input[type="checkbox"]:checked')];
+}
+
 function checkLinkFormValid() {
-  const key  = (document.getElementById('link-jira-input').value ?? '').trim();
-  const flow = document.getElementById('link-flow-select').value;
-  document.getElementById('link-form-save').disabled = !(key && flow && /^[A-Z]+-\d+$/i.test(key));
+  const key = (document.getElementById('link-jira-input').value ?? '').trim();
+  document.getElementById('link-form-save').disabled =
+    !(key && /^[A-Z]+-\d+$/i.test(key) && checkedFlows().length > 0);
 }
 
 function openLinkForm() {
@@ -1028,10 +1050,13 @@ function openLinkForm() {
   document.getElementById('link-add-btn').style.display = 'none';
   document.getElementById('link-form-error').style.display = 'none';
   document.getElementById('link-jira-input').value = '';
-  document.getElementById('link-flow-select').value = '';
+  document.getElementById('link-flow-search').value = '';
   document.getElementById('link-form-save').disabled = true;
   document.getElementById('link-form-save').textContent = 'Save';
-  populateFlowDropdown().then(() => document.getElementById('link-jira-input').focus());
+  // Un-check any previously checked flows and show all
+  document.querySelectorAll('#link-flow-picker input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('.link-flow-option,.link-flow-group-label,.link-flow-group').forEach(el => { el.style.display = ''; });
+  populateFlowPicker().then(() => document.getElementById('link-jira-input').focus());
 }
 
 function closeLinkForm() {
@@ -1039,36 +1064,51 @@ function closeLinkForm() {
   document.getElementById('link-add-btn').style.display = '';
 }
 
+// Search filter
+document.getElementById('link-flow-search').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.link-flow-group').forEach(grp => {
+    let any = false;
+    grp.querySelectorAll('.link-flow-option').forEach(opt => {
+      const match = !q || opt.querySelector('span').textContent.toLowerCase().includes(q);
+      opt.style.display = match ? '' : 'none';
+      if (match) any = true;
+    });
+    grp.style.display = any ? '' : 'none';
+  });
+});
+
 document.getElementById('link-add-btn').addEventListener('click', openLinkForm);
 document.getElementById('link-form-cancel').addEventListener('click', closeLinkForm);
 document.getElementById('link-jira-input').addEventListener('input', checkLinkFormValid);
-document.getElementById('link-flow-select').addEventListener('change', checkLinkFormValid);
 
 document.getElementById('link-form-save').addEventListener('click', async () => {
-  const jiraKey = (document.getElementById('link-jira-input').value ?? '').trim().toUpperCase();
-  const flowId  = document.getElementById('link-flow-select').value;
-  const saveBtn = document.getElementById('link-form-save');
-  const errEl   = document.getElementById('link-form-error');
+  const jiraKey  = (document.getElementById('link-jira-input').value ?? '').trim().toUpperCase();
+  const selected = checkedFlows();
+  const saveBtn  = document.getElementById('link-form-save');
+  const errEl    = document.getElementById('link-form-error');
 
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving…';
+  saveBtn.disabled    = true;
+  saveBtn.textContent = `Saving ${selected.length}…`;
   errEl.style.display = 'none';
 
   try {
-    const res  = await fetch('/api/links', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ jiraKey, flowId }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      closeLinkForm();
-      await loadLinks();
-    } else {
-      errEl.textContent    = data.error ?? 'Save failed';
+    const results = await Promise.all(selected.map(cb =>
+      fetch('/api/links', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ jiraKey, flowId: cb.value }),
+      }).then(r => r.json())
+    ));
+    const failed = results.filter(r => !r.ok);
+    if (failed.length) {
+      errEl.textContent    = failed[0].error ?? 'Some flows could not be saved';
       errEl.style.display  = 'block';
       saveBtn.disabled     = false;
       saveBtn.textContent  = 'Save';
+    } else {
+      closeLinkForm();
+      await loadLinks();
     }
   } catch (err) {
     errEl.textContent    = String(err);
