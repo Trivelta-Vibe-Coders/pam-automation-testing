@@ -731,7 +731,7 @@ function markTicketDone(key) {
   placeInDone(entry.card);
 }
 
-const DONE_STATUSES = /^(done|closed|resolved|complete|completed|rejected)$/i;
+const DONE_STATUSES = /^(done|closed|resolved|complete|completed|rejected|won'?t\s+do|wont\s+do)$/i;
 
 /**
  * Add a bullet item to a ticket card, updating the card's status indicator.
