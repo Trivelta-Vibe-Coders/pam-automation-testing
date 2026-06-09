@@ -366,6 +366,7 @@ let filterUnlinked     = false;
 let searchQuery        = '';
 let showDoneLinks      = false;
 let inProgressEpics    = []; // [{ key, summary }] — fetched live from Jira
+let sseConnectTime     = 0;  // timestamp when SSE connected — used to classify historical vs live events
 
 // ── Config ────────────────────────────────────────────────────────────────────
 async function loadConfig() {
@@ -869,10 +870,28 @@ async function loadTickets() {
         epicStatus:     ticket.epicStatus,
       });
 
-      // If a live SSE event already created the card but the persistent record
-      // says it's Done, make sure it ends up in the right section.
+      // If a live SSE event already created the card, restore persistent state
+      // (noTestNeeded, jiraStatus, title) and add any historical events that
+      // predate this session. Skip events from this session to avoid duplicates.
       if (ticketCards.has(ticket.key)) {
+        const existing = ticketCards.get(ticket.key);
         if (isDone) markTicketDone(ticket.key);
+        if (ticket.noTestNeeded && existing.noTestEl && !existing.noTestEl.classList.contains('active')) {
+          existing.noTestEl.classList.add('active');
+          existing.noTestEl.title = 'Click to re-enable testing';
+        }
+        if (ticket.jiraStatus) setCardJiraStatus(existing, ticket.jiraStatus);
+        if (ticket.title && !existing.summaryEl.textContent) {
+          const t = ticket.title;
+          existing.summaryEl.textContent = t.length > 55 ? t.slice(0, 52) + '…' : t;
+        }
+        // Add only pre-session events to avoid duplicating live bullets
+        for (const ev of ticket.events) {
+          if (sseConnectTime > 0 && new Date(ev.timestamp).getTime() >= sseConnectTime) continue;
+          const text = prettify(ev.message, ev.details ?? {});
+          if (text === null) continue;
+          addBullet(ticket.key, ev, text, true);
+        }
         continue;
       }
 
@@ -1220,6 +1239,7 @@ function connect() {
   const es = new EventSource('/events');
 
   es.onopen = async () => {
+    sseConnectTime = Date.now();
     document.getElementById('dot').classList.add('connected');
     document.getElementById('conn-label').textContent = 'Live';
     await loadConfig(); // must load before loadTickets so Jira URLs are ready
@@ -1230,8 +1250,8 @@ function connect() {
   es.onmessage = e => {
     try {
       const ev = JSON.parse(e.data);
-      // Events older than 30 s are from the history replay on connect
-      const isHistorical = (Date.now() - new Date(ev.timestamp).getTime()) > 30_000;
+      // Any event timestamped before we connected is from the ring buffer replay
+      const isHistorical = sseConnectTime > 0 && new Date(ev.timestamp).getTime() < sseConnectTime;
       appendEvent(ev, isHistorical);
       if (ev.message && /flow/i.test(ev.message)) loadLinks();
     } catch {}
