@@ -16,7 +16,7 @@ import * as flowLinks from '../services/flow-links';
 import * as ticketStore from '../services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
-import { extractSprintName, extractEpicRef } from '../services/jira-fields';
+import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
 
 // Map Jira status names → Autosana environments
@@ -46,8 +46,9 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   // Always persist the latest Jira status + sprint/epic metadata
   ticketStore.updateTicketStatus(key, newStatus);
   ticketStore.updateTicketMeta(key, {
-    sprint: extractSprintName(issue.fields),
-    epic:   extractEpicRef(issue.fields),
+    sprint:         extractSprintName(issue.fields),
+    sprintIsActive: isSprintActive(issue.fields),
+    epic:           extractEpicRef(issue.fields),
   });
 
   const env = statusToEnvironment(newStatus);

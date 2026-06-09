@@ -861,7 +861,11 @@ async function loadTickets() {
       const isDone = ticket.jiraStatus && DONE_STATUSES.test(ticket.jiraStatus);
 
       // Store sprint/epic metadata for filtering
-      ticketMeta.set(ticket.key, { sprint: ticket.sprint, epic: ticket.epic });
+      ticketMeta.set(ticket.key, {
+        sprint:         ticket.sprint,
+        sprintIsActive: ticket.sprintIsActive,
+        epic:           ticket.epic,
+      });
 
       // If a live SSE event already created the card but the persistent record
       // says it's Done, make sure it ends up in the right section.
@@ -934,11 +938,16 @@ function applyFilters() {
 }
 
 function detectCurrentSprint() {
-  // Return the sprint with the most active (non-done) tickets
+  // First pass: look for a sprint explicitly marked active in Jira (state=active)
+  for (const [key, meta] of ticketMeta) {
+    if (meta.sprint && meta.sprintIsActive && !ticketCards.get(key)?.isDone) {
+      return meta.sprint;
+    }
+  }
+  // Fallback: most common sprint name among non-done tickets
   const counts = new Map();
   for (const [key, meta] of ticketMeta) {
-    if (!meta.sprint) continue;
-    if (ticketCards.get(key)?.isDone) continue;
+    if (!meta.sprint || ticketCards.get(key)?.isDone) continue;
     counts.set(meta.sprint, (counts.get(meta.sprint) ?? 0) + 1);
   }
   if (!counts.size) return null;
@@ -950,8 +959,15 @@ function populateFilterDropdowns() {
   const epics   = new Set();
   for (const [key, meta] of ticketMeta) {
     if (meta.sprint) sprints.add(meta.sprint);
-    // Only include epics where at least one ticket with that epic is still active
-    if (meta.epic && !ticketCards.get(key)?.isDone) epics.add(meta.epic);
+    if (meta.epic) {
+      // If the epic is stored as a Jira key (e.g. "PAMENG-42"), look up its own status
+      const isJiraKey = /^[A-Z]+-\d+$/.test(meta.epic);
+      const epicEntry = isJiraKey ? ticketCards.get(meta.epic) : undefined;
+      const epicIsDone = epicEntry
+        ? epicEntry.isDone                   // epic ticket is in our store — use its actual status
+        : ticketCards.get(key)?.isDone;      // fallback: exclude if this sub-ticket is done
+      if (!epicIsDone) epics.add(meta.epic);
+    }
   }
   const sprintSel = document.getElementById('filter-sprint');
   const epicSel   = document.getElementById('filter-epic');

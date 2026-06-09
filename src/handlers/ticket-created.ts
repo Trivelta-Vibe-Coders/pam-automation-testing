@@ -24,7 +24,7 @@ import * as autosana from '../services/autosana';
 import * as matcher from '../services/flow-matcher';
 import * as slack from '../services/slack';
 import * as ticketStore from '../services/ticket-store';
-import { extractSprintName, extractEpicRef } from '../services/jira-fields';
+import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
 
 export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
@@ -46,8 +46,9 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
 
   // 1b. Persist sprint / epic so the UI can filter by them
   ticketStore.updateTicketMeta(key, {
-    sprint: extractSprintName(fields),
-    epic:   extractEpicRef(fields),
+    sprint:         extractSprintName(fields),
+    sprintIsActive: isSprintActive(fields),
+    epic:           extractEpicRef(fields),
   });
 
   // 2. Gate: check manual override first, then AI gate
