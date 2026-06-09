@@ -24,6 +24,7 @@ export interface TicketRecord {
   sprint?:        string;        // active sprint name, e.g. "Sprint 5"
   sprintIsActive?: boolean;     // true when the sprint was explicitly state=active in Jira
   epic?:          string;       // epic key, e.g. "PAMENG-12"
+  epicStatus?:    string;       // Jira status of the epic ticket, e.g. "In Progress"
   noTestNeeded?: boolean;      // manually marked — skip AI gate and test triggers
   events:       ActivityEvent[];
   createdAt:    string;
@@ -152,7 +153,7 @@ export function setNoTestNeeded(key: string, value: boolean): void {
  */
 export function updateTicketMeta(
   key: string,
-  meta: { sprint?: string; sprintIsActive?: boolean; epic?: string },
+  meta: { sprint?: string; sprintIsActive?: boolean; epic?: string; epicStatus?: string },
 ): void {
   if (!store.has(key)) {
     const now = new Date().toISOString();
@@ -162,6 +163,7 @@ export function updateTicketMeta(
   if (meta.sprint         !== undefined) rec.sprint         = meta.sprint         || undefined;
   if (meta.sprintIsActive !== undefined) rec.sprintIsActive = meta.sprintIsActive || undefined;
   if (meta.epic           !== undefined) rec.epic           = meta.epic           || undefined;
+  if (meta.epicStatus     !== undefined) rec.epicStatus     = meta.epicStatus     || undefined;
   saveToDisk();
 }
 

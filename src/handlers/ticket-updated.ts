@@ -45,11 +45,18 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   // Always persist the latest Jira status + sprint/epic metadata
   ticketStore.updateTicketStatus(key, newStatus);
+  const epicRef = extractEpicRef(issue.fields);
   ticketStore.updateTicketMeta(key, {
     sprint:         extractSprintName(issue.fields),
     sprintIsActive: isSprintActive(issue.fields),
-    epic:           extractEpicRef(issue.fields),
+    epic:           epicRef,
   });
+  // Fetch the epic's own Jira status so the UI can filter to in-progress epics only
+  if (epicRef) {
+    jiraClient.getIssue(epicRef)
+      .then(epicIssue => ticketStore.updateTicketMeta(key, { epicStatus: epicIssue.fields.status.name }))
+      .catch(() => { /* non-fatal */ });
+  }
 
   const env = statusToEnvironment(newStatus);
 

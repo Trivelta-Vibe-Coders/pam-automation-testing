@@ -865,6 +865,7 @@ async function loadTickets() {
         sprint:         ticket.sprint,
         sprintIsActive: ticket.sprintIsActive,
         epic:           ticket.epic,
+        epicStatus:     ticket.epicStatus,
       });
 
       // If a live SSE event already created the card but the persistent record
@@ -960,13 +961,15 @@ function populateFilterDropdowns() {
   for (const [key, meta] of ticketMeta) {
     if (meta.sprint) sprints.add(meta.sprint);
     if (meta.epic) {
-      // If the epic is stored as a Jira key (e.g. "PAMENG-42"), look up its own status
-      const isJiraKey = /^[A-Z]+-\d+$/.test(meta.epic);
-      const epicEntry = isJiraKey ? ticketCards.get(meta.epic) : undefined;
-      const epicIsDone = epicEntry
-        ? epicEntry.isDone                   // epic ticket is in our store — use its actual status
-        : ticketCards.get(key)?.isDone;      // fallback: exclude if this sub-ticket is done
-      if (!epicIsDone) epics.add(meta.epic);
+      if (meta.epicStatus) {
+        // We have the epic's actual Jira status — only show if it's in progress
+        if (/in.?progress|in.?review|in.?qa|active/i.test(meta.epicStatus)) {
+          epics.add(meta.epic);
+        }
+      } else {
+        // epicStatus not yet fetched — fall back to excluding only done sub-tickets
+        if (!ticketCards.get(key)?.isDone) epics.add(meta.epic);
+      }
     }
   }
   const sprintSel = document.getElementById('filter-sprint');
