@@ -855,7 +855,7 @@ function applyFilters() {
     const meta       = ticketMeta.get(key) ?? {};
     const sprintOk   = !activeSprintFilter || meta.sprint === activeSprintFilter;
     const epicOk     = !activeEpicFilter   || meta.epic   === activeEpicFilter;
-    const unlinkedOk = !filterUnlinked     || !linkedKeys.has(key);
+    const unlinkedOk = !filterUnlinked     || (!linkedKeys.has(key) && !entry.noTestEl?.classList.contains('active'));
     const visible    = sprintOk && epicOk && unlinkedOk;
     entry.card.style.display = visible ? '' : 'none';
     if (entry.isDone && visible) visibleDoneCount++;
