@@ -151,17 +151,14 @@ app.get('/api/tickets', (_req: Request, res: Response) => {
 // ── API: in-progress epics (live from Jira) ───────────────────────────────────
 app.get('/api/epics', async (_req: Request, res: Response) => {
   try {
-    // statusCategory = "In Progress" matches any status in the In Progress
-    // category regardless of exact name, so it works across Jira project types.
     const issues = await jiraClient.searchIssues(
-      `project = ${config.jiraProject} AND issuetype = Epic AND statusCategory = "In Progress" ORDER BY updated DESC`,
+      `project = ${config.jiraProject} AND issuetype = Epic ORDER BY updated DESC`,
       ['summary', 'status'],
       200,
     );
-    res.json(issues.map(i => ({ key: i.key, summary: i.fields.summary })));
+    res.json({ debug: true, total: issues.length, issues: issues.map(i => ({ key: i.key, summary: i.fields.summary, status: i.fields.status?.name })) });
   } catch (err) {
-    logger.warn('Failed to fetch in-progress epics from Jira', { error: String(err) });
-    res.json([]); // return empty array so the UI degrades gracefully
+    res.json({ debug: true, error: String(err) });
   }
 });
 
