@@ -902,7 +902,8 @@ async function loadTickets() {
     }
     // Fetch in-progress epics from Jira, then populate dropdowns
     try {
-      inProgressEpics = await fetch('/api/epics').then(r => r.json());
+      const epicData = await fetch('/api/epics').then(r => r.json());
+      inProgressEpics = Array.isArray(epicData) ? epicData : [];
     } catch { inProgressEpics = []; }
     populateFilterDropdowns();
 
