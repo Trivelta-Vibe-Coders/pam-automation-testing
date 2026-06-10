@@ -610,12 +610,54 @@ function jiraStatusClass(status) {
   return '';
 }
 
-/** Update the Jira status badge on a card entry. */
+/** Update the Jira status badge on a card entry and re-sort the list. */
 function setCardJiraStatus(entry, status) {
   if (!entry.jiraStatusEl || !status) return;
+  entry.jiraStatus                = status;
   entry.jiraStatusEl.textContent  = status;
   entry.jiraStatusEl.style.display = '';
   entry.jiraStatusEl.className    = 'tc-jira-status ' + jiraStatusClass(status);
+  scheduleSort();
+}
+
+/** Priority order for sorting active ticket cards. Lower = higher up. */
+function statusSortPriority(status) {
+  const s = (status || '').toLowerCase();
+  if (/^(stg|staging|stage)$/.test(s))           return 0;
+  if (/^dev$/.test(s) || /in dev/i.test(s))       return 1;
+  if (/code.?review/i.test(s))                    return 2;
+  if (/in.?progress|in.?review|in.?qa/i.test(s)) return 3;
+  if (/blocked|on.?hold/i.test(s))                return 4;
+  if (/to.?do/i.test(s))                          return 5;
+  if (s)                                           return 6;  // any other known status
+  return 7;                                                    // no status yet
+}
+
+let _sortTimer = null;
+function scheduleSort() {
+  if (_sortTimer) clearTimeout(_sortTimer);
+  _sortTimer = setTimeout(sortTicketCards, 80);
+}
+
+function sortTicketCards() {
+  const logEl      = document.getElementById('log');
+  const doneSection = document.getElementById('done-section');
+  const systemCard  = document.getElementById('tc-SYSTEM');
+
+  // Gather all active (non-done, non-system) cards with their priority
+  const cards = [];
+  for (const [key, entry] of ticketCards) {
+    if (key === 'SYSTEM' || entry.isDone) continue;
+    cards.push({ entry, pri: statusSortPriority(entry.jiraStatus || '') });
+  }
+  cards.sort((a, b) => a.pri - b.pri);
+
+  // Re-insert in sorted order before the done section / system card
+  const anchor = doneSection || systemCard || null;
+  for (const { entry } of cards) {
+    if (anchor) logEl.insertBefore(entry.card, anchor);
+    else        logEl.appendChild(entry.card);
+  }
 }
 
 /**
@@ -703,9 +745,10 @@ function getOrCreateCard(key, isDone) {
     statusEl:       card.querySelector('.tc-status'),
     jiraStatusEl:   card.querySelector('.tc-jira-status'),
     noTestEl:       noTestBtn,
-    count: 0,
-    level: 'info',
-    isDone: !!isDone,
+    count:       0,
+    level:       'info',
+    isDone:      !!isDone,
+    jiraStatus:  '',
   };
 
   ticketCards.set(key, entry);
@@ -925,6 +968,9 @@ async function loadTickets() {
       inProgressEpics = Array.isArray(epicData) ? epicData : [];
     } catch { inProgressEpics = []; }
     populateFilterDropdowns();
+
+    // Sort cards by Jira status priority
+    sortTicketCards();
 
     // Auto-select current sprint on first load (user can clear it)
     if (!activeSprintFilter) {
