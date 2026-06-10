@@ -225,6 +225,7 @@
     .flow-restrict { background:none; border:1px solid var(--border); border-radius:4px; color:var(--muted); font-size:10px; font-weight:600; padding:2px 6px; cursor:pointer; flex-shrink:0; transition:all .15s; white-space:nowrap; letter-spacing:.3px; }
     .flow-restrict:hover { border-color:var(--yellow); color:var(--yellow); }
     .flow-restrict.restricted { background:rgba(234,179,8,.12); border-color:var(--yellow); color:var(--yellow); }
+    .flow-restrict.prod-only  { background:rgba(239,68,68,.12);  border-color:var(--red);    color:var(--red); }
 
     /* Runner controls sidebar */
     .runner-controls { width:260px; flex-shrink:0; border-left:1px solid var(--border); display:flex; flex-direction:column; padding:20px 16px; gap:16px; background:var(--bg2); overflow-y:auto; }
@@ -355,6 +356,7 @@ const selectedFlows  = new Map(); // flowId   → { flowId, flowName, suiteName 
 let currentEnv  = 'staging';
 let suitesLoaded = false;
 const devExcluded = new Set(); // flow IDs excluded from dev
+const stgExcluded = new Set(); // flow IDs excluded from staging
 let appConfig    = { jiraBaseUrl: '', autosanaAppUrl: '' };
 
 // Filter state
@@ -1375,10 +1377,9 @@ function renderSuites(data) {
                   data-suite="${esc(suite.suite_id)}"
                   data-suite-name="${esc(suite.suite_name)}" />
                 <span class="flow-name">${esc(f.name)}</span>
-                <button class="flow-restrict${devExcluded.has(f.id) ? ' restricted' : ''}"
+                <button class="flow-restrict${devExcluded.has(f.id) && stgExcluded.has(f.id) ? ' prod-only' : devExcluded.has(f.id) ? ' restricted' : ''}"
                   data-flow-id="${esc(f.id)}"
-                  title="${devExcluded.has(f.id) ? 'Click to allow in dev' : 'Click to exclude from dev runs'}"
-                >${devExcluded.has(f.id) ? 'Stg only' : 'Dev'}</button>
+                >${devExcluded.has(f.id) && stgExcluded.has(f.id) ? 'Prod only' : devExcluded.has(f.id) ? 'Stg only' : 'All envs'}</button>
               </div>`).join('')
       }</div>`;
 
@@ -1415,23 +1416,37 @@ function renderSuites(data) {
       });
     });
 
-    // Dev-restriction toggle per flow
+    // 3-state restriction cycle: All envs → Stg only → Prod only → All envs
     card.querySelectorAll('.flow-restrict').forEach(btn => {
       btn.addEventListener('click', async e => {
         e.stopPropagation();
-        const flowId  = btn.dataset.flowId;
-        const exclude = !devExcluded.has(flowId);
+        const flowId   = btn.dataset.flowId;
+        const isProd   = btn.classList.contains('prod-only');
+        const isStgOnly = btn.classList.contains('restricted');
+        const post = (environment, excluded) => fetch('/api/env-restrictions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flowId, environment, excluded }),
+        });
         try {
-          await fetch('/api/env-restrictions', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ flowId, environment: 'dev', excluded: exclude }),
-          });
-          if (exclude) devExcluded.add(flowId);
-          else         devExcluded.delete(flowId);
-          btn.classList.toggle('restricted', exclude);
-          btn.textContent = exclude ? 'Stg only' : 'Dev';
-          btn.title       = exclude ? 'Click to allow in dev' : 'Click to exclude from dev runs';
+          if (isProd) {
+            // Prod only → All envs (clear both)
+            await Promise.all([post('dev', false), post('staging', false)]);
+            devExcluded.delete(flowId); stgExcluded.delete(flowId);
+            btn.classList.remove('prod-only');
+            btn.textContent = 'All envs';
+          } else if (isStgOnly) {
+            // Stg only → Prod only (add staging exclusion)
+            await post('staging', true);
+            stgExcluded.add(flowId);
+            btn.classList.replace('restricted', 'prod-only');
+            btn.textContent = 'Prod only';
+          } else {
+            // All envs → Stg only (add dev exclusion)
+            await post('dev', true);
+            devExcluded.add(flowId);
+            btn.classList.add('restricted');
+            btn.textContent = 'Stg only';
+          }
         } catch {}
       });
     });
@@ -1468,8 +1483,9 @@ async function loadSuites() {
       fetch('/api/suites-with-flows').then(r => r.json()),
       fetch('/api/env-restrictions').then(r => r.json()),
     ]);
-    devExcluded.clear();
-    for (const id of (restrictions.dev ?? [])) devExcluded.add(id);
+    devExcluded.clear(); stgExcluded.clear();
+    for (const id of (restrictions.dev     ?? [])) devExcluded.add(id);
+    for (const id of (restrictions.staging ?? [])) stgExcluded.add(id);
     renderSuites(data);
   } catch (err) {
     document.getElementById('suite-list').innerHTML =
