@@ -186,6 +186,7 @@
     .filter-clear:hover { border-color:var(--red); color:var(--red); }
 
     /* ── Inline test results in bullet ── */
+    .tc-results-summary { margin-top:6px; margin-bottom:4px; font-size:12px; color:var(--text); line-height:1.5; font-style:italic; }
     .tc-results { margin-top:6px; display:flex; flex-direction:column; gap:3px; }
     .tc-results-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0; }
     .tc-results-name { flex:1; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -842,8 +843,15 @@ function addBullet(key, ev, text, isHistorical) {
     `</span>` +
     `<span class="tc-bullet-time">${fmtTime(ev.timestamp)}</span>`;
 
-  // Inline test results table (from batch-poller structured event)
+  // Inline test results (from batch-poller structured event)
   if (ev.details?.testResults && Array.isArray(ev.details.testResults)) {
+    // AI summary sentence
+    if (ev.details.testSummary) {
+      const summaryEl = document.createElement('p');
+      summaryEl.className = 'tc-results-summary';
+      summaryEl.textContent = ev.details.testSummary;
+      li.querySelector('.tc-bullet-body').appendChild(summaryEl);
+    }
     const resultsEl = document.createElement('div');
     resultsEl.className = 'tc-results';
     for (const suite of ev.details.testResults) {

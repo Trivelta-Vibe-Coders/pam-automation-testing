@@ -11,6 +11,7 @@
  */
 import { getRunStatus } from './autosana';
 import { dispatchSuiteCompleted, FlowRunResult } from './github';
+import { summariseTestResults } from './ai-summarizer';
 import * as logger from '../logger';
 import { config } from '../config';
 
@@ -147,19 +148,32 @@ export function startPolling(params: {
         .filter(g => suiteIdForName(g.name))
         .map(g => {
           const runUrl = g.id ? `https://autosana.ai/runs/groups/${g.id}` : g.url ?? undefined;
-          const flows  = (g.runs ?? []).map(r => normaliseStatus(r.status));
-          const passed = flows.filter(s => s === 'passed').length;
-          const failed = flows.filter(s => s !== 'passed').length;
-          return { suiteName: g.name, runUrl, passed, failed };
+          const runs   = g.runs ?? [];
+          const passed = runs.filter(r => normaliseStatus(r.status) === 'passed').length;
+          const failed = runs.filter(r => normaliseStatus(r.status) !== 'passed').length;
+          const failedFlowNames = runs
+            .filter(r => normaliseStatus(r.status) !== 'passed')
+            .map(r => r.name)
+            .filter(Boolean);
+          return { suiteName: g.name, runUrl, passed, failed, failedFlowNames };
         });
 
       if (allResults.length) {
         const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
         const totalFailed = allResults.reduce((s, r) => s + r.failed, 0);
+
+        // Generate AI summary
+        let testSummary: string | undefined;
+        try {
+          testSummary = await summariseTestResults(allResults, triggeredBy);
+        } catch {
+          // Non-fatal — fall back to no summary
+        }
+
         const logFn = totalFailed === 0 ? logger.success : logger.warn;
         logFn(
-          `Test results: ${totalPassed} passed, ${totalFailed} failed`,
-          { triggeredBy, batchId, testResults: allResults },
+          testSummary ?? `Test results: ${totalPassed} passed, ${totalFailed} failed`,
+          { triggeredBy, batchId, testResults: allResults, testSummary },
         );
       }
 
