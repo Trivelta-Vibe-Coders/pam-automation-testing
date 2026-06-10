@@ -59,12 +59,10 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
       .catch(() => { /* non-fatal */ });
   }
 
-  const env = statusToEnvironment(newStatus);
+  const env    = statusToEnvironment(newStatus);
+  const isDone = newStatus === config.jiraStatusDone || /^done$/i.test(newStatus);
 
-  if (!env) {
-    // Status changed but it's not a trigger-worthy status — log it so
-    // the user can see what name came in and configure JIRA_STATUS_DEV /
-    // JIRA_STATUS_STG if needed.
+  if (!env && !isDone) {
     logger.info(
       `${key} status changed to "${newStatus}" (not a trigger status — configure JIRA_STATUS_DEV or JIRA_STATUS_STG to enable)`,
       { key, fromStatus, toStatus: newStatus },
@@ -81,8 +79,68 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     return;
   }
 
+  // ── Production trigger on Done ─────────────────────────────────────────────
+  if (isDone) {
+    const prodAppId = config.autosanaEnvMap['production'];
+    if (!prodAppId) {
+      logger.info(
+        `${key} moved to Done — no production app configured (set AUTOSANA_APP_ID_PROD to enable)`,
+        { key },
+      );
+      return;
+    }
+
+    const link = flowLinks.getLink(key);
+    if (!link) {
+      logger.info(`${key} moved to Done — no flow links, skipping production trigger`, { key });
+      return;
+    }
+
+    // Only trigger flows marked Prod only (excluded from both dev and staging)
+    const prodOnlyFlowIds = link.flows
+      .map(f => f.flowId)
+      .filter(id =>
+        envRestrictions.isExcluded(id, 'dev') &&
+        envRestrictions.isExcluded(id, 'staging'),
+      );
+
+    if (!prodOnlyFlowIds.length) {
+      logger.info(
+        `${key} moved to Done — no prod-only flows linked, skipping production trigger`,
+        { key },
+      );
+      return;
+    }
+
+    const prodNames = link.flows
+      .filter(f => prodOnlyFlowIds.includes(f.flowId))
+      .map(f => `"${f.flowName}"`).join(', ');
+    logger.info(
+      `${key} moved to Done → triggering ${prodOnlyFlowIds.length} prod-only flow(s): ${prodNames}`,
+      { key, flowIds: prodOnlyFlowIds },
+    );
+
+    let prodResult: Awaited<ReturnType<typeof triggerFlows>>;
+    try {
+      prodResult = await triggerFlows({
+        environment: 'production',
+        flowIds:     prodOnlyFlowIds,
+        jiraKey:     key,
+      });
+    } catch (err) {
+      logger.error(`Production trigger failed for ${key}`, { error: String(err) });
+      return;
+    }
+
+    startPolling({ batchId: prodResult.batchId, environment: 'production', triggeredBy: key });
+    return;
+  }
+
+  // env is guaranteed non-null here (isDone handled above, null env returned early)
+  const safeEnv = env!;
+
   logger.info(
-    `${key} moved to "${newStatus}" → triggering ${env} run`,
+    `${key} moved to "${newStatus}" → triggering ${safeEnv} run`,
     { key, fromStatus, toStatus: newStatus },
   );
 
@@ -107,7 +165,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   let result: Awaited<ReturnType<typeof triggerFlows>>;
   try {
     result = await triggerFlows({
-      environment: env,
+      environment: safeEnv,
       ...(link ? { flowIds: link.flows.map(f => f.flowId) } : {}),
       jiraKey: key,
     });
@@ -116,7 +174,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     try {
       await jiraClient.addComment(
         key,
-        `🤖 *PAM QA Agent* — Failed to trigger automated tests for the ${env} environment.\n` +
+        `🤖 *PAM QA Agent* — Failed to trigger automated tests for the ${safeEnv} environment.\n` +
         `Error: ${String(err).slice(0, 200)}\n` +
         `Please trigger manually via GitHub Actions.`,
       );
@@ -125,7 +183,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   }
 
   // 4. Start background polling → Slack report when complete
-  startPolling({ batchId: result.batchId, environment: env, triggeredBy: key });
+  startPolling({ batchId: result.batchId, environment: safeEnv, triggeredBy: key });
 
   // 5. Post Jira comment
   try {
@@ -137,7 +195,7 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
     await jiraClient.addComment(
       key,
-      `🤖 *PAM QA Agent* — Automated tests triggered for *${env}* environment.\n` +
+      `🤖 *PAM QA Agent* — Automated tests triggered for *${safeEnv}* environment.\n` +
       `${whatRan}\n` +
       `Batch ID: \`${result.batchId}\`  |  Flows: ${result.flowRunCount}\n` +
       `Results will appear in Slack once the run completes (~15–30 min).`,
