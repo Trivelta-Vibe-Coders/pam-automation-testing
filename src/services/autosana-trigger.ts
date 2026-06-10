@@ -7,7 +7,7 @@ import { triggerRun, listFlows } from './autosana';
 import * as envRestrictions from './env-restrictions';
 import * as logger from '../logger';
 
-export type TriggerEnvironment = 'staging' | 'dev';
+export type TriggerEnvironment = 'staging' | 'dev' | 'production';
 
 export interface TriggerOptions {
   environment: TriggerEnvironment;

@@ -18,8 +18,9 @@ export const config = {
 
   // Environment → Autosana app_id mapping
   autosanaEnvMap: {
-    staging: optional_env('AUTOSANA_APP_ID_STAGING', 'rebet-stg-pam'),
-    dev:     optional_env('AUTOSANA_APP_ID_DEV',     'dev-pam'),
+    staging:    optional_env('AUTOSANA_APP_ID_STAGING', 'rebet-stg-pam'),
+    dev:        optional_env('AUTOSANA_APP_ID_DEV',     'dev-pam'),
+    production: optional_env('AUTOSANA_APP_ID_PROD',    ''),
   } as Record<string, string>,
 
   // PAM suite IDs
@@ -34,8 +35,9 @@ export const config = {
   } as Record<string, string>,
 
   // Jira status names that trigger test runs
-  jiraStatusDev: optional_env('JIRA_STATUS_DEV', 'Dev'),
-  jiraStatusStg: optional_env('JIRA_STATUS_STG', 'Stg'),
+  jiraStatusDev:  optional_env('JIRA_STATUS_DEV',  'Dev'),
+  jiraStatusStg:  optional_env('JIRA_STATUS_STG',  'Stg'),
+  jiraStatusDone: optional_env('JIRA_STATUS_DONE', 'Done'),
 
   // Jira
   jiraBaseUrl:   require_env('JIRA_BASE_URL'),   // e.g. https://trivelta.atlassian.net

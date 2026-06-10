@@ -14,6 +14,7 @@ import * as logger from '../logger';
 import * as jiraClient from '../services/jira';
 import * as flowLinks from '../services/flow-links';
 import * as ticketStore from '../services/ticket-store';
+import * as envRestrictions from '../services/env-restrictions';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
 import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';

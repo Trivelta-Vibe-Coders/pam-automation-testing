@@ -210,6 +210,11 @@
     .suite-check { width:16px; height:16px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; }
     .suite-name { font-weight:600; font-size:13px; flex:1; }
     .suite-badge { background:var(--border); color:var(--muted); border-radius:999px; padding:2px 8px; font-size:11px; }
+    .suite-restrict { background:none; border:1px solid var(--border); border-radius:4px; color:var(--muted); font-size:10px; font-weight:600; padding:2px 7px; cursor:pointer; flex-shrink:0; transition:all .15s; white-space:nowrap; }
+    .suite-restrict:hover { border-color:var(--yellow); color:var(--yellow); }
+    .suite-restrict.restricted { background:rgba(234,179,8,.12); border-color:var(--yellow); color:var(--yellow); }
+    .suite-restrict.prod-only  { background:rgba(239,68,68,.12);  border-color:var(--red);    color:var(--red); }
+    .suite-restrict.mixed      { background:rgba(99,102,241,.1);  border-color:var(--indigo); color:var(--indigo); }
     .suite-chevron { color:var(--muted); font-size:12px; transition:transform .2s; }
     .suite-card.collapsed .suite-chevron { transform:rotate(-90deg); }
     .flows-list { }
@@ -1349,6 +1354,21 @@ function updateRunBtn() {
   }
 }
 
+/** Return the restriction state of a suite based on its flows: 0=all, 1=stg-only, 2=prod-only, -1=mixed */
+function suiteRestrictState(flows) {
+  if (!flows.length) return 0;
+  const states = flows.map(f =>
+    devExcluded.has(f.id) && stgExcluded.has(f.id) ? 2 : devExcluded.has(f.id) ? 1 : 0
+  );
+  return states.every(s => s === states[0]) ? states[0] : -1;
+}
+function suiteRestrictLabel(state) {
+  return state === 2 ? 'Prod only' : state === 1 ? 'Stg only' : state === -1 ? 'Mixed' : 'All envs';
+}
+function suiteRestrictClass(state) {
+  return state === 2 ? ' prod-only' : state === 1 ? ' restricted' : state === -1 ? ' mixed' : '';
+}
+
 function renderSuites(data) {
   suitesLoaded = true;
   const container = document.getElementById('suite-list');
@@ -1359,11 +1379,13 @@ function renderSuites(data) {
     const card = document.createElement('div');
     card.className = 'suite-card';
     const fc = suite.flows.length;
+    const initState = suiteRestrictState(suite.flows);
     card.innerHTML = `
       <div class="suite-header">
         <input type="checkbox" class="suite-check" data-suite="${esc(suite.suite_id)}" data-name="${esc(suite.suite_name)}" />
         <span class="suite-name">${esc(suite.suite_name)}</span>
         <span class="suite-badge">${fc} flow${fc===1?'':'s'}</span>
+        <button class="suite-restrict${suiteRestrictClass(initState)}" title="Set environment restriction for all flows in this suite">${suiteRestrictLabel(initState)}</button>
         <span class="suite-chevron">▾</span>
       </div>
       <div class="flows-list">${
@@ -1383,10 +1405,61 @@ function renderSuites(data) {
               </div>`).join('')
       }</div>`;
 
-    // Suite header click → collapse/expand (but not when clicking the checkbox)
+    // Suite header click → collapse/expand (but not checkbox or restrict btn)
     card.querySelector('.suite-header').addEventListener('click', e => {
       if (e.target.classList.contains('suite-check')) return;
+      if (e.target.classList.contains('suite-restrict')) return;
       card.classList.toggle('collapsed');
+    });
+
+    // Suite-level restriction: cycle all flows together
+    card.querySelector('.suite-restrict').addEventListener('click', async e => {
+      e.stopPropagation();
+      const suiteBtn = e.currentTarget;
+      const flowBtns = [...card.querySelectorAll('.flow-restrict')];
+      const flowIds  = flowBtns.map(b => b.dataset.flowId);
+      if (!flowIds.length) return;
+
+      const curState = suiteRestrictState(flowIds.map(id => ({ id })));
+      // Cycle: mixed/all(0) → stg-only(1) → prod-only(2) → all(0)
+      const nextState = curState <= 0 ? 1 : curState === 1 ? 2 : 0;
+
+      try {
+        // Build the API calls for this state transition
+        const calls = [];
+        for (const id of flowIds) {
+          if (nextState === 1) {
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'dev',     excluded: true  }) }));
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'staging',  excluded: false }) }));
+          } else if (nextState === 2) {
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'dev',     excluded: true }) }));
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'staging', excluded: true }) }));
+          } else {
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'dev',     excluded: false }) }));
+            calls.push(fetch('/api/env-restrictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ flowId: id, environment: 'staging', excluded: false }) }));
+          }
+        }
+        await Promise.all(calls);
+
+        // Update in-memory sets and individual flow buttons
+        for (let i = 0; i < flowIds.length; i++) {
+          const id  = flowIds[i];
+          const btn = flowBtns[i];
+          if (nextState === 1) {
+            devExcluded.add(id); stgExcluded.delete(id);
+            btn.className = 'flow-restrict restricted'; btn.textContent = 'Stg only';
+          } else if (nextState === 2) {
+            devExcluded.add(id); stgExcluded.add(id);
+            btn.className = 'flow-restrict prod-only';  btn.textContent = 'Prod only';
+          } else {
+            devExcluded.delete(id); stgExcluded.delete(id);
+            btn.className = 'flow-restrict';             btn.textContent = 'All envs';
+          }
+        }
+
+        suiteBtn.className   = 'suite-restrict' + suiteRestrictClass(nextState);
+        suiteBtn.textContent = suiteRestrictLabel(nextState);
+      } catch {}
     });
 
     // Suite checkbox → select whole suite; clear any individual flow selections
@@ -1429,23 +1502,29 @@ function renderSuites(data) {
         });
         try {
           if (isProd) {
-            // Prod only → All envs (clear both)
             await Promise.all([post('dev', false), post('staging', false)]);
             devExcluded.delete(flowId); stgExcluded.delete(flowId);
             btn.classList.remove('prod-only');
             btn.textContent = 'All envs';
           } else if (isStgOnly) {
-            // Stg only → Prod only (add staging exclusion)
             await post('staging', true);
             stgExcluded.add(flowId);
             btn.classList.replace('restricted', 'prod-only');
             btn.textContent = 'Prod only';
           } else {
-            // All envs → Stg only (add dev exclusion)
             await post('dev', true);
             devExcluded.add(flowId);
             btn.classList.add('restricted');
             btn.textContent = 'Stg only';
+          }
+          // Refresh suite-level button to reflect new mixed/uniform state
+          const suiteBtn = btn.closest('.suite-card')?.querySelector('.suite-restrict');
+          if (suiteBtn) {
+            const flowRows = [...btn.closest('.flows-list').querySelectorAll('.flow-restrict')];
+            const ids = flowRows.map(b => ({ id: b.dataset.flowId }));
+            const s = suiteRestrictState(ids);
+            suiteBtn.className   = 'suite-restrict' + suiteRestrictClass(s);
+            suiteBtn.textContent = suiteRestrictLabel(s);
           }
         } catch {}
       });
