@@ -81,15 +81,6 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   // ── Production trigger on Done ─────────────────────────────────────────────
   if (isDone) {
-    const prodAppId = config.autosanaEnvMap['production'];
-    if (!prodAppId) {
-      logger.info(
-        `${key} moved to Done — no production app configured (set AUTOSANA_APP_ID_PROD to enable)`,
-        { key },
-      );
-      return;
-    }
-
     const link = flowLinks.getLink(key);
     if (!link) {
       logger.info(`${key} moved to Done — no flow links, skipping production trigger`, { key });

@@ -20,7 +20,7 @@ export const config = {
   autosanaEnvMap: {
     staging:    optional_env('AUTOSANA_APP_ID_STAGING', 'rebet-stg-pam'),
     dev:        optional_env('AUTOSANA_APP_ID_DEV',     'dev-pam'),
-    production: optional_env('AUTOSANA_APP_ID_PROD',    ''),
+    production: optional_env('AUTOSANA_APP_ID_PROD',    'rebet-prod-pam'),
   } as Record<string, string>,
 
   // PAM suite IDs
