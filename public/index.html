@@ -113,6 +113,26 @@
     .tc-no-test:hover { border-color:var(--yellow) !important; color:var(--yellow); }
     .tc-no-test.active { opacity:1; background:rgba(234,179,8,.12); border-color:var(--yellow); color:var(--yellow); }
 
+    /* Re-run button on card header */
+    .tc-rerun { flex-shrink:0; background:none; border:1px solid transparent; border-radius:999px; font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; color:var(--muted); transition:all .15s; opacity:0; white-space:nowrap; letter-spacing:.3px; }
+    .tc-header:hover .tc-rerun { opacity:1; border-color:var(--border); }
+    .tc-rerun:hover { border-color:var(--indigo) !important; color:var(--indigo); }
+    .tc-rerun.running { opacity:1; color:var(--indigo); border-color:var(--indigo); cursor:default; }
+    .tc-rerun.queued  { opacity:1; color:var(--green);  border-color:var(--green);  cursor:default; }
+    .tc-rerun.error   { opacity:1; color:var(--red);    border-color:var(--red);    cursor:default; }
+
+    /* Re-run dialog */
+    #rerun-dialog { border:1px solid var(--border); border-radius:10px; background:var(--bg2); color:var(--text); padding:20px 24px; min-width:280px; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+    #rerun-dialog::backdrop { background:rgba(0,0,0,.5); }
+    .rerun-dialog-title { font-size:13px; font-weight:600; margin-bottom:4px; }
+    .rerun-dialog-sub { font-size:12px; color:var(--muted); margin-bottom:16px; }
+    .rerun-dialog-key { color:var(--indigo); font-family:var(--font-mono); }
+    .rerun-dialog-envs { display:flex; gap:8px; margin-bottom:14px; }
+    .rerun-env-btn { flex:1; padding:8px 0; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
+    .rerun-env-btn:hover { border-color:var(--indigo); color:var(--indigo); background:rgba(99,102,241,.1); }
+    .rerun-dialog-cancel { width:100%; padding:7px; background:none; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:12px; cursor:pointer; transition:border-color .15s,color .15s; }
+    .rerun-dialog-cancel:hover { border-color:var(--red); color:var(--red); }
+
     /* Jira status badge on card header */
     .tc-jira-status { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--border); color:var(--muted); white-space:nowrap; flex-shrink:0; text-transform:uppercase; letter-spacing:.4px; }
     .tc-jira-status.s-dev      { background:rgba(59,130,246,.15);  color:var(--blue); }
@@ -349,6 +369,18 @@
     <button class="refresh-btn" id="refresh-btn">↺ Refresh Flows</button>
   </div>
 </div>
+
+<!-- Re-run env picker dialog (shared across all ticket cards) -->
+<dialog id="rerun-dialog">
+  <p class="rerun-dialog-title">Re-run flows for <span class="rerun-dialog-key" id="rerun-dialog-key"></span></p>
+  <p class="rerun-dialog-sub">Choose the environment to run linked flows in:</p>
+  <div class="rerun-dialog-envs">
+    <button class="rerun-env-btn" data-env="dev">Dev</button>
+    <button class="rerun-env-btn" data-env="staging">Staging</button>
+    <button class="rerun-env-btn" data-env="production">Prod</button>
+  </div>
+  <button class="rerun-dialog-cancel" id="rerun-dialog-cancel">Cancel</button>
+</dialog>
 
 <script>
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -698,6 +730,7 @@ function getOrCreateCard(key, isDone) {
     <div class="tc-header">
       ${keyHtml}
       <span class="tc-summary"></span>
+      ${isSystem ? '' : '<button class="tc-rerun" style="display:none" title="Re-run linked flows in a specific environment">↺ Re-run</button>'}
       ${isSystem ? '' : '<button class="tc-no-test" title="Mark as no test needed">No Test</button>'}
       ${isSystem ? '' : '<span class="tc-jira-status" style="display:none"></span>'}
       <span class="tc-status"></span>
@@ -745,6 +778,15 @@ function getOrCreateCard(key, isDone) {
     });
   }
 
+  // Wire up the Re-run button
+  const rerunBtn = card.querySelector('.tc-rerun');
+  if (rerunBtn) {
+    rerunBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openRerunDialog(key);
+    });
+  }
+
   const entry = {
     card,
     listEl:         card.querySelector('.tc-bullets'),
@@ -753,6 +795,7 @@ function getOrCreateCard(key, isDone) {
     statusEl:       card.querySelector('.tc-status'),
     jiraStatusEl:   card.querySelector('.tc-jira-status'),
     noTestEl:       noTestBtn,
+    rerunEl:        rerunBtn,
     count:       0,
     level:       'info',
     isDone:      !!isDone,
@@ -1104,6 +1147,70 @@ document.getElementById('filter-clear').addEventListener('click', () => {
   applyFilters();
 });
 
+// ── Re-run dialog ─────────────────────────────────────────────────────────────
+const rerunDialog   = document.getElementById('rerun-dialog');
+const rerunDialogKey = document.getElementById('rerun-dialog-key');
+
+function openRerunDialog(key) {
+  rerunDialogKey.textContent = key;
+  rerunDialog._currentKey = key;
+  rerunDialog.showModal();
+}
+
+document.getElementById('rerun-dialog-cancel').addEventListener('click', () => {
+  rerunDialog.close();
+});
+
+rerunDialog.addEventListener('click', e => {
+  // Close on backdrop click
+  if (e.target === rerunDialog) rerunDialog.close();
+});
+
+rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const key = rerunDialog._currentKey;
+    const env = btn.dataset.env;
+    rerunDialog.close();
+
+    const entry = ticketCards.get(key);
+    const rerunEl = entry?.rerunEl;
+    if (rerunEl) {
+      rerunEl.textContent = '↺ Running…';
+      rerunEl.className = 'tc-rerun running';
+    }
+
+    try {
+      const res = await fetch(`/api/tickets/${encodeURIComponent(key)}/rerun`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ environment: env }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? res.statusText);
+
+      if (rerunEl) {
+        rerunEl.textContent = `✓ Queued (${data.flowCount} flow${data.flowCount === 1 ? '' : 's'})`;
+        rerunEl.className = 'tc-rerun queued';
+        setTimeout(() => {
+          rerunEl.textContent = '↺ Re-run';
+          rerunEl.className = 'tc-rerun';
+        }, 4000);
+      }
+    } catch (err) {
+      if (rerunEl) {
+        rerunEl.textContent = '✕ Failed';
+        rerunEl.className = 'tc-rerun error';
+        rerunEl.title = String(err);
+        setTimeout(() => {
+          rerunEl.textContent = '↺ Re-run';
+          rerunEl.className = 'tc-rerun';
+          rerunEl.title = 'Re-run linked flows in a specific environment';
+        }, 4000);
+      }
+    }
+  });
+});
+
 // ── Flow links ────────────────────────────────────────────────────────────────
 async function loadLinks() {
   try {
@@ -1113,6 +1220,11 @@ async function loadLinks() {
     linkedKeys.clear();
     for (const l of links) linkedKeys.add(l.jiraKey);
     if (filterUnlinked) applyFilters();
+
+    // Show re-run button only on cards that have linked flows
+    for (const [k, e] of ticketCards) {
+      if (e.rerunEl) e.rerunEl.style.display = linkedKeys.has(k) ? '' : 'none';
+    }
 
     const activeLinks = links.filter(l => !DONE_STATUSES.test(l.jiraStatus ?? ''));
     const doneLinks   = links.filter(l =>  DONE_STATUSES.test(l.jiraStatus ?? ''));

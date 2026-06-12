@@ -24,6 +24,7 @@ import { getFlow } from './services/autosana';
 import * as envRestrictions from './services/env-restrictions';
 import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
+import { startPolling } from './services/batch-poller';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -184,6 +185,47 @@ app.post('/api/env-restrictions', (req: Request, res: Response) => {
   }
   envRestrictions.setExclusion(String(flowId), String(environment), excluded);
   res.json({ ok: true });
+});
+
+// ── API: manual re-run linked flows for a ticket ─────────────────────────────
+app.post('/api/tickets/:key/rerun', async (req: Request, res: Response) => {
+  const key = req.params.key.toUpperCase();
+  const env = (req.body?.environment ?? 'staging') as TriggerEnvironment;
+
+  const link = flowLinks.getLink(key);
+  if (!link || !link.flows.length) {
+    res.status(404).json({ ok: false, error: 'No flow links found for this ticket' });
+    return;
+  }
+
+  // Respect env restrictions so prod-only flows don't run in dev/staging
+  let flowIds = link.flows.map(f => f.flowId);
+  if (env === 'dev') {
+    flowIds = flowIds.filter(id => !envRestrictions.isExcluded(id, 'dev'));
+  } else if (env === 'staging') {
+    flowIds = flowIds.filter(id => !envRestrictions.isExcluded(id, 'staging'));
+  } else if (env === 'production') {
+    flowIds = flowIds.filter(id =>
+      envRestrictions.isExcluded(id, 'dev') && envRestrictions.isExcluded(id, 'staging'),
+    );
+  }
+
+  if (!flowIds.length) {
+    res.status(400).json({ ok: false, error: `No flows eligible to run in ${env} (check env restrictions)` });
+    return;
+  }
+
+  try {
+    const result = await triggerFlows({ environment: env, flowIds, jiraKey: key });
+    startPolling({ batchId: result.batchId, environment: env, triggeredBy: key });
+    logger.success(`Manual re-run triggered for ${key} in ${env}`, {
+      key, env, batchId: result.batchId, flowCount: result.flowRunCount,
+    });
+    res.json({ ok: true, batchId: result.batchId, flowCount: result.flowRunCount });
+  } catch (err) {
+    logger.error(`Manual re-run failed for ${key}`, { error: String(err) });
+    res.status(500).json({ ok: false, error: String(err) });
+  }
 });
 
 // ── API: manual trigger ───────────────────────────────────────────────────────
