@@ -1049,7 +1049,8 @@ function populateFilterDropdowns() {
   const sprints = new Set();
   const epics   = new Set();
   for (const [key, meta] of ticketMeta) {
-    if (meta.sprint) sprints.add(meta.sprint);
+    // Only show PAM team sprints (filter out cross-team / unrelated sprints)
+    if (meta.sprint && /pam/i.test(meta.sprint)) sprints.add(meta.sprint);
     if (meta.epic) {
       // Match by key OR summary; always add the canonical summary as the display value
       const match = inProgressEpics.find(e =>

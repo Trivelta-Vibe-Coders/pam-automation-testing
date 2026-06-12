@@ -151,11 +151,10 @@ export function startPolling(params: {
           const runs   = g.runs ?? [];
           const passed = runs.filter(r => normaliseStatus(r.status) === 'passed').length;
           const failed = runs.filter(r => normaliseStatus(r.status) !== 'passed').length;
-          const failedFlowNames = runs
+          const failedFlowDetails = runs
             .filter(r => normaliseStatus(r.status) !== 'passed')
-            .map(r => r.name)
-            .filter(Boolean);
-          return { suiteName: g.name, runUrl, passed, failed, failedFlowNames };
+            .map(r => ({ name: r.name ?? 'Unknown', summary: r.summary ?? '' }));
+          return { suiteName: g.name, runUrl, passed, failed, failedFlowDetails };
         });
 
       if (allResults.length) {
