@@ -151,10 +151,13 @@ export function startPolling(params: {
           const runs   = g.runs ?? [];
           const passed = runs.filter(r => normaliseStatus(r.status) === 'passed').length;
           const failed = runs.filter(r => normaliseStatus(r.status) !== 'passed').length;
-          const failedFlowDetails = runs
-            .filter(r => normaliseStatus(r.status) !== 'passed')
-            .map(r => ({ name: r.name ?? 'Unknown', summary: r.summary ?? '' }));
-          return { suiteName: g.name, runUrl, passed, failed, failedFlowDetails };
+          const allFlowDetails = runs.map(r => ({
+            name:    r.name    ?? 'Unknown',
+            status:  normaliseStatus(r.status),
+            summary: r.summary ?? '',
+          }));
+          const failedFlowDetails = allFlowDetails.filter(f => f.status !== 'passed');
+          return { suiteName: g.name, runUrl, passed, failed, allFlowDetails, failedFlowDetails };
         });
 
       if (allResults.length) {

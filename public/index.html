@@ -207,8 +207,19 @@
 
     /* ── Inline test results in bullet ── */
     .tc-results-summary { margin-top:6px; margin-bottom:4px; font-size:12px; color:var(--text); line-height:1.5; font-style:italic; }
-    .tc-results { margin-top:6px; display:flex; flex-direction:column; gap:3px; }
-    .tc-results-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0; }
+    .tc-results { margin-top:6px; display:flex; flex-direction:column; gap:1px; }
+    /* Suite group header */
+    .tc-results-group { display:flex; align-items:center; gap:4px; padding:5px 0 2px; margin-top:2px; border-top:1px solid rgba(45,49,72,.5); }
+    .tc-results-group:first-child { padding-top:0; margin-top:0; border-top:none; }
+    .tc-results-group-name { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); flex:1; }
+    /* Per-flow row */
+    .tc-results-flow { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0 2px 6px; }
+    .tc-results-flow-status { flex-shrink:0; font-size:11px; font-weight:700; width:12px; text-align:center; }
+    .tc-results-flow-status.pass { color:var(--green); }
+    .tc-results-flow-status.fail { color:var(--red); }
+    .tc-results-flow-name { flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Fallback row (old events without allFlowDetails) */
+    .tc-results-row { display:flex; align-items:center; gap:6px; font-size:11px; padding:2px 0 2px 6px; }
     .tc-results-name { flex:1; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .tc-results-p { color:var(--green); font-weight:700; flex-shrink:0; min-width:28px; text-align:right; }
     .tc-results-f { color:var(--red); font-weight:700; flex-shrink:0; min-width:28px; text-align:right; }
@@ -898,19 +909,38 @@ function addBullet(key, ev, text, isHistorical) {
     const resultsEl = document.createElement('div');
     resultsEl.className = 'tc-results';
     for (const suite of ev.details.testResults) {
-      const row = document.createElement('div');
-      row.className = 'tc-results-row';
-      const pCls = suite.passed > 0 ? 'tc-results-p' : 'tc-results-p zero';
-      const fCls = suite.failed > 0 ? 'tc-results-f' : 'tc-results-f zero';
+      // Suite group header
+      const groupRow = document.createElement('div');
+      groupRow.className = 'tc-results-group';
       const link = suite.runUrl
-        ? ` <a class="tc-bullet-link" href="${esc(suite.runUrl)}" target="_blank" rel="noopener">↗</a>`
+        ? `<a class="tc-bullet-link" href="${esc(suite.runUrl)}" target="_blank" rel="noopener">↗</a>`
         : '';
-      row.innerHTML =
-        `<span class="tc-results-name">${esc(suite.suiteName)}</span>` +
-        `<span class="${pCls}">${suite.passed}✓</span>` +
-        `<span class="${fCls}">${suite.failed}✗</span>` +
-        link;
-      resultsEl.appendChild(row);
+      groupRow.innerHTML = `<span class="tc-results-group-name">${esc(suite.suiteName)}</span>${link}`;
+      resultsEl.appendChild(groupRow);
+
+      if (suite.allFlowDetails?.length) {
+        // Per-flow rows (new format)
+        for (const flow of suite.allFlowDetails) {
+          const flowRow = document.createElement('div');
+          flowRow.className = 'tc-results-flow';
+          const isPassed = flow.status === 'passed';
+          flowRow.innerHTML =
+            `<span class="tc-results-flow-status ${isPassed ? 'pass' : 'fail'}">${isPassed ? '✓' : '✗'}</span>` +
+            `<span class="tc-results-flow-name">${esc(flow.name)}</span>`;
+          resultsEl.appendChild(flowRow);
+        }
+      } else {
+        // Fallback: old events without per-flow data
+        const row = document.createElement('div');
+        row.className = 'tc-results-row';
+        const pCls = suite.passed > 0 ? 'tc-results-p' : 'tc-results-p zero';
+        const fCls = suite.failed > 0 ? 'tc-results-f' : 'tc-results-f zero';
+        row.innerHTML =
+          `<span class="tc-results-name">${suite.passed + suite.failed} flows</span>` +
+          `<span class="${pCls}">${suite.passed}✓</span>` +
+          `<span class="${fCls}">${suite.failed}✗</span>`;
+        resultsEl.appendChild(row);
+      }
     }
     li.querySelector('.tc-bullet-body').appendChild(resultsEl);
   }
