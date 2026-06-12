@@ -138,27 +138,26 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
   // 1. Look up stored flow link
   let link = flowLinks.getLink(key);
 
-  if (link) {
-    const names = link.flows.map(f => `"${f.flowName}"`).join(', ');
-    logger.info(`Found ${link.flows.length} linked flow(s) for ${key}: ${names}`, {
-      flowIds: link.flows.map(f => f.flowId),
-    });
-  } else {
-    // 2. No stored link — the team hasn't manually linked a flow yet.
-    //    Trigger all PAM suites as a fallback so tests still run.
-    logger.warn(
-      `No flow link found for ${key} — falling back to full regression (link a flow via the Flow Links panel to target a specific flow next time)`,
-      { key },
+  if (!link) {
+    logger.info(
+      `${key} moved to "${newStatus}" — no flow links found, skipping (link a flow via the Flow Links panel to enable automated testing)`,
+      { key, toStatus: newStatus },
     );
+    return;
   }
 
-  // 3. Trigger — specific flow when we have a link, full suites as fallback
+  const names = link.flows.map(f => `"${f.flowName}"`).join(', ');
+  logger.info(`Found ${link.flows.length} linked flow(s) for ${key}: ${names}`, {
+    flowIds: link.flows.map(f => f.flowId),
+  });
+
+  // 3. Trigger linked flows
   let result: Awaited<ReturnType<typeof triggerFlows>>;
   try {
     result = await triggerFlows({
       environment: safeEnv,
-      ...(link ? { flowIds: link.flows.map(f => f.flowId) } : {}),
-      jiraKey: key,
+      flowIds:     link.flows.map(f => f.flowId),
+      jiraKey:     key,
     });
   } catch (err) {
     logger.error(`Trigger failed for ${key}`, { error: String(err) });
@@ -178,11 +177,9 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
 
   // 5. Post Jira comment
   try {
-    const whatRan = link
-      ? link.flows.length === 1
-        ? `Flow: "${link.flows[0].flowName}"`
-        : `Flows: ${link.flows.map(f => `"${f.flowName}"`).join(', ')}`
-      : 'all PAM suites (no flow link found)';
+    const whatRan = link.flows.length === 1
+      ? `Flow: "${link.flows[0].flowName}"`
+      : `Flows: ${link.flows.map(f => `"${f.flowName}"`).join(', ')}`;
 
     await jiraClient.addComment(
       key,
