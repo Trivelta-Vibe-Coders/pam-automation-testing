@@ -23,6 +23,7 @@ export async function dispatchSuiteCompleted(params: {
   runDate:     string;
   flows:       FlowRunResult[];
   environment: string;
+  triggeredBy?: string;   // "nightly" | jira key | "manual"
 }): Promise<void> {
   if (!config.githubToken) {
     throw new Error('GITHUB_DISPATCH_TOKEN not set — cannot dispatch to GitHub Actions');
@@ -32,11 +33,12 @@ export async function dispatchSuiteCompleted(params: {
   const body = {
     event_type:     'pam-suite-completed',
     client_payload: {
-      suite_id:    params.suiteId,
-      suite_name:  params.suiteName,
-      run_date:    params.runDate,
-      flows:       params.flows,
-      environment: params.environment,
+      suite_id:     params.suiteId,
+      suite_name:   params.suiteName,
+      run_date:     params.runDate,
+      flows:        params.flows,
+      environment:  params.environment,
+      triggered_by: params.triggeredBy ?? 'manual',
     },
   };
 

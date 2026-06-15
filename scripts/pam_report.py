@@ -14,7 +14,7 @@ Pipeline:
   6. Send Slack notification
 """
 
-import os, sys, json, base64, datetime
+import os, sys, json, base64, datetime, time
 import urllib.request, urllib.parse, urllib.error
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -55,13 +55,14 @@ PAYLOAD_FILE         = os.environ["PAYLOAD_FILE"]
 def load_payload():
     with open(PAYLOAD_FILE) as f:
         payload = json.load(f)
-    suite_id    = payload["suite_id"]
-    suite_name  = payload["suite_name"]
-    run_date    = payload.get("run_date", datetime.date.today().isoformat())
-    flows       = payload.get("flows", [])
-    environment = payload.get("environment", "staging")
-    print(f"[1] Loaded {len(flows)} flows for {suite_name} ({run_date}) [{environment}]")
-    return suite_id, suite_name, run_date, flows, environment
+    suite_id     = payload["suite_id"]
+    suite_name   = payload["suite_name"]
+    run_date     = payload.get("run_date", datetime.date.today().isoformat())
+    flows        = payload.get("flows", [])
+    environment  = payload.get("environment", "staging")
+    triggered_by = payload.get("triggered_by", "manual")
+    print(f"[1] Loaded {len(flows)} flows for {suite_name} ({run_date}) [{environment}] triggered_by={triggered_by}")
+    return suite_id, suite_name, run_date, flows, environment, triggered_by
 
 
 # ── Step 4: Classify with Claude ──────────────────────────────────────────────
@@ -348,62 +349,166 @@ def generate_pdf(suite_name, run_date, classifications):
     return pdf_path
 
 
-# ── Step 6: Confluence ────────────────────────────────────────────────────────
-def create_confluence_page(suite_name, run_date, suite_id, classifications):
-    print("[4] Creating Confluence page...")
-    creds = base64.b64encode(f"{CONFLUENCE_EMAIL}:{CONFLUENCE_TOKEN}".encode()).decode()
-    totals = {c: sum(1 for x in classifications if x['classification']==c)
-              for c in ['Pass','Pass (with bugs)','Legitimate Failure','Agent Error','N/A']}
+# ── Step 6: Confluence (one page per day, append per suite/run) ───────────────
+
+def _conf_headers(creds):
+    return {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+
+
+def build_suite_html_section(suite_name, run_time, environment, triggered_by, classifications):
+    """Build the HTML block for one suite result to append to the daily page."""
+    totals = {c: sum(1 for x in classifications if x['classification'] == c)
+              for c in ['Pass', 'Pass (with bugs)', 'Legitimate Failure', 'Agent Error', 'N/A']}
 
     def badge(label, color):
         return f'<span data-type="status" data-color="{color}">{label}</span>'
 
     rows = ""
     for i, cl in enumerate(classifications, 1):
-        rc = 'green' if cl['stg_result']=='Pass' else 'red' if cl['stg_result']=='Fail' else 'neutral'
-        cc = ('red'     if 'Failure' in cl['classification'] else
-              'yellow'  if 'Error'   in cl['classification'] else
-              'neutral' if cl['classification']=='N/A'       else 'green')
+        rc  = 'green' if cl['stg_result'] == 'Pass' else 'red' if cl['stg_result'] == 'Fail' else 'neutral'
         rows += (f"<tr><td><p>{i}</p></td><td><p>{cl['flow_name']}</p></td>"
-                 f"<td><p>{badge(cl['stg_result'],rc)}</p></td>"
+                 f"<td><p>{badge(cl['stg_result'], rc)}</p></td>"
                  f"<td><p>{cl['classification']}</p></td>"
-                 f"<td><p>{cl.get('summary','')[:200]}</p></td></tr>")
+                 f"<td><p>{cl.get('summary', '')[:200]}</p></td></tr>")
 
     failures_html = "".join(
-        f"<h3>{f['flow_name']}</h3><p><strong>Summary:</strong> {f.get('summary','')}</p>"
-        + "".join(f"<p>• {b}</p>" for b in f.get('bugs',[]))
-        for f in classifications if f['classification']=='Legitimate Failure'
-    ) or "<p>No legitimate failures this run.</p>"
+        f"<h4>{f['flow_name']}</h4>"
+        f"<p><strong>Summary:</strong> {f.get('summary', '')}</p>"
+        + "".join(f"<p>• {b}</p>" for b in f.get('bugs', []))
+        for f in classifications if f['classification'] == 'Legitimate Failure'
+    ) or "<p>No legitimate failures.</p>"
 
-    html = f"""
-<h2>Executive Summary</h2>
+    trigger_label = triggered_by if triggered_by == 'nightly' else f"ticket {triggered_by}"
+
+    return f"""
+<h2>{suite_name} — {run_time} | {environment} | {trigger_label}</h2>
 <table><thead><tr><th>Metric</th><th>Count</th></tr></thead><tbody>
 <tr><td>Total Flows</td><td>{len(classifications)}</td></tr>
-<tr><td>{badge('Pass (clean)','green')}</td><td>{totals['Pass']}</td></tr>
-<tr><td>{badge('Pass (with bugs)','green')}</td><td>{totals['Pass (with bugs)']}</td></tr>
-<tr><td>{badge('Legitimate Failures','red')}</td><td>{totals['Legitimate Failure']}</td></tr>
-<tr><td>{badge('Agent Errors','yellow')}</td><td>{totals['Agent Error']}</td></tr>
-<tr><td>{badge('Not Run / N/A','neutral')}</td><td>{totals['N/A']}</td></tr>
+<tr><td>{badge('Pass (clean)', 'green')}</td><td>{totals['Pass']}</td></tr>
+<tr><td>{badge('Pass (with bugs)', 'green')}</td><td>{totals['Pass (with bugs)']}</td></tr>
+<tr><td>{badge('Legitimate Failures', 'red')}</td><td>{totals['Legitimate Failure']}</td></tr>
+<tr><td>{badge('Agent Errors', 'yellow')}</td><td>{totals['Agent Error']}</td></tr>
+<tr><td>{badge('Not Run / N/A', 'neutral')}</td><td>{totals['N/A']}</td></tr>
 </tbody></table>
-<h2>Flow Results — {suite_name}</h2>
+<h3>Flow Results</h3>
 <table><thead><tr><th>#</th><th>Flow Name</th><th>Result</th><th>Classification</th><th>Summary</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<h2>Legitimate Failure Details</h2>{failures_html}"""
+<h3>Failure Details</h3>
+{failures_html}
+<hr/>
+"""
 
-    body = {"spaceId": CONFLUENCE_SPACE_ID, "parentId": CONFLUENCE_PARENT_ID,
-            "title": f"PAM QA Report — {suite_name} — {run_date}",
-            "body": {"representation": "storage", "value": html}}
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(
-        f"{CONFLUENCE_BASE}/pages", data=data,
-        headers={"Authorization": f"Basic {creds}", "Content-Type": "application/json"},
-        method="POST"
+
+def find_daily_page(run_date, creds):
+    """Search for today's Confluence page.
+    Returns (page_id, version_number, existing_html) or (None, None, '') if not found."""
+    headers = _conf_headers(creds)
+    title   = f"PAM QA Report — {run_date}"
+
+    # Search by space + exact title
+    search_url = (
+        f"{CONFLUENCE_BASE}/pages"
+        f"?spaceId={CONFLUENCE_SPACE_ID}"
+        f"&title={urllib.parse.quote(title)}"
+        f"&status=current"
+        f"&limit=1"
     )
+    req = urllib.request.Request(search_url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
-        result = json.loads(r.read())
-    url = f"https://trivelta.atlassian.net/wiki{result.get('_links',{}).get('webui','')}"
-    print(f"    Confluence page created: {url}")
-    return url
+        data = json.loads(r.read())
+
+    pages = data.get("results", [])
+    if not pages:
+        return None, None, ""
+
+    page_id = pages[0]["id"]
+    version = pages[0]["version"]["number"]
+
+    # Fetch current body (storage format)
+    body_url = f"{CONFLUENCE_BASE}/pages/{page_id}?body-format=storage"
+    req2 = urllib.request.Request(body_url, headers=headers)
+    with urllib.request.urlopen(req2, timeout=30) as r:
+        page_data = json.loads(r.read())
+
+    existing_html = page_data.get("body", {}).get("storage", {}).get("value", "")
+    return page_id, version, existing_html
+
+
+def create_confluence_page(suite_name, run_date, suite_id, classifications,
+                           environment="staging", triggered_by="manual"):
+    """Find or create the daily Confluence page and append this suite's results."""
+    print("[4] Updating Confluence daily page...")
+    creds    = base64.b64encode(f"{CONFLUENCE_EMAIL}:{CONFLUENCE_TOKEN}".encode()).decode()
+    headers  = _conf_headers(creds)
+    title    = f"PAM QA Report — {run_date}"
+    run_time = datetime.datetime.utcnow().strftime("%H:%M UTC")
+
+    new_section = build_suite_html_section(
+        suite_name, run_time, environment, triggered_by, classifications
+    )
+
+    for attempt in range(4):
+        page_id, version, existing_html = find_daily_page(run_date, creds)
+
+        if page_id is None:
+            # No page yet — create it
+            body = {
+                "spaceId":  CONFLUENCE_SPACE_ID,
+                "parentId": CONFLUENCE_PARENT_ID,
+                "title":    title,
+                "body":     {"representation": "storage", "value": new_section},
+            }
+            req = urllib.request.Request(
+                f"{CONFLUENCE_BASE}/pages",
+                data=json.dumps(body).encode(),
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    result = json.loads(r.read())
+                url = f"https://trivelta.atlassian.net/wiki{result.get('_links', {}).get('webui', '')}"
+                print(f"    Daily page created: {url}")
+                return url
+            except urllib.error.HTTPError as e:
+                if e.code == 409:
+                    # Another suite job beat us to it — retry and append instead
+                    print(f"    Page creation conflict (attempt {attempt+1}), retrying...")
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise
+
+        else:
+            # Page exists — append new section
+            updated_html = existing_html + new_section
+            body = {
+                "id":      page_id,
+                "status":  "current",
+                "title":   title,
+                "version": {"number": version + 1},
+                "body":    {"representation": "storage", "value": updated_html},
+            }
+            req = urllib.request.Request(
+                f"{CONFLUENCE_BASE}/pages/{page_id}",
+                data=json.dumps(body).encode(),
+                headers=headers,
+                method="PUT",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    result = json.loads(r.read())
+                url = f"https://trivelta.atlassian.net/wiki{result.get('_links', {}).get('webui', '')}"
+                print(f"    Daily page updated (v{version + 1}): {url}")
+                return url
+            except urllib.error.HTTPError as e:
+                if e.code == 409:
+                    # Version conflict — another suite appended simultaneously; retry
+                    print(f"    Version conflict (attempt {attempt+1}), retrying...")
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise
+
+    raise RuntimeError("Failed to update Confluence daily page after 4 attempts")
 
 
 # ── Step 7: Google Sheet ──────────────────────────────────────────────────────
@@ -557,7 +662,7 @@ def send_slack(suite_name, run_date, confluence_url, classifications, environmen
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n{'='*60}\nPAM Report Pipeline (v4 — payload from teardown hook)\n{'='*60}\n")
-    suite_id, suite_name, run_date, flows, environment = load_payload()
+    suite_id, suite_name, run_date, flows, environment, triggered_by = load_payload()
     classifications = classify_flows(suite_name, flows)
 
     # Generate outputs
@@ -565,19 +670,22 @@ def main():
 
     confluence_url = ""
     try:
-        confluence_url = create_confluence_page(suite_name, run_date, suite_id, classifications)
+        confluence_url = create_confluence_page(
+            suite_name, run_date, suite_id, classifications,
+            environment=environment, triggered_by=triggered_by,
+        )
     except Exception as e:
-        print(f"[6] Confluence error: {e}")
+        print(f"[4] Confluence error: {e}")
 
     try:
         update_sheet(suite_id, run_date, classifications)
     except Exception as e:
-        print(f"[7] Sheet error: {e}")
+        print(f"[5] Sheet error: {e}")
 
     try:
         send_slack(suite_name, run_date, confluence_url, classifications, environment, flows)
     except Exception as e:
-        print(f"[8] Slack error: {e}")
+        print(f"[6] Slack error: {e}")
 
     print(f"\n✓ Pipeline complete")
 

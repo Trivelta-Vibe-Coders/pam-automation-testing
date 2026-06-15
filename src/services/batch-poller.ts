@@ -122,7 +122,7 @@ export function startPolling(params: {
           : group.url ?? undefined;
 
         try {
-          await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment });
+          await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment, triggeredBy });
           logger.success(`GitHub dispatch sent for "${suiteName}"`, {
             suiteId,
             flowCount: flows.length,
