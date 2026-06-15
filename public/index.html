@@ -836,6 +836,33 @@ function markTicketDone(key) {
   placeInDone(entry.card);
 }
 
+/** Called when a previously-done ticket moves back to an active status. */
+function unmarkTicketDone(key) {
+  const entry = ticketCards.get(key);
+  if (!entry || !entry.isDone) return;
+  entry.isDone = false;
+
+  // Pull the card out of the done section
+  const doneEl      = document.getElementById('done-tickets');
+  const doneSection = document.getElementById('done-section');
+  if (entry.card.parentElement === doneEl) doneEl.removeChild(entry.card);
+
+  // Decrement done count; hide done section if now empty
+  doneCount = Math.max(0, doneCount - 1);
+  document.getElementById('done-count').textContent = doneCount;
+  if (doneCount === 0) doneSection.style.display = 'none';
+
+  // Re-insert into the active list (before done section / system card)
+  const logEl      = document.getElementById('log');
+  const systemCard = document.getElementById('tc-SYSTEM');
+  const anchor     = doneSection || systemCard;
+  if (anchor) logEl.insertBefore(entry.card, anchor);
+  else        logEl.appendChild(entry.card);
+
+  // Sort it into the right position based on its current Jira status
+  scheduleSort();
+}
+
 const DONE_STATUSES = /^(done|closed|resolved|complete|completed|rejected|won'?t\s+do|wont\s+do)$/i;
 
 /**
@@ -868,12 +895,19 @@ function addBullet(key, ev, text, isHistorical) {
   entry.count++;
   entry.countEl.textContent = entry.count;
 
-  // Update Jira status badge + handle Done move
-  if (key !== 'SYSTEM') {
+  // Update Jira status badge + handle Done ↔ active transitions.
+  // Skip for historical events — loadTickets already applied the correct current state;
+  // replaying old transitions would cause unnecessary (and wrong) card moves.
+  if (key !== 'SYSTEM' && !isHistorical) {
     const toStatus = ev.details?.toStatus ? String(ev.details.toStatus) : null;
     if (toStatus) {
       setCardJiraStatus(entry, toStatus);
-      if (DONE_STATUSES.test(toStatus)) markTicketDone(key);
+      if (DONE_STATUSES.test(toStatus)) {
+        markTicketDone(key);
+      } else if (entry.isDone) {
+        // Ticket moved back from done to an active status — restore to active list
+        unmarkTicketDone(key);
+      }
     }
   }
 
@@ -1006,7 +1040,13 @@ async function loadTickets() {
       // predate this session. Skip events from this session to avoid duplicates.
       if (ticketCards.has(ticket.key)) {
         const existing = ticketCards.get(ticket.key);
-        if (isDone) markTicketDone(ticket.key);
+        if (isDone) {
+          markTicketDone(ticket.key);
+        } else if (existing.isDone) {
+          // Card was pushed to done by a historical SSE event, but the stored
+          // status is now active — move it back to the active list
+          unmarkTicketDone(ticket.key);
+        }
         if (ticket.noTestNeeded && existing.noTestEl && !existing.noTestEl.classList.contains('active')) {
           existing.noTestEl.classList.add('active');
           existing.noTestEl.title = 'Click to re-enable testing';
