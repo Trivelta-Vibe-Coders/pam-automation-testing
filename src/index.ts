@@ -283,7 +283,13 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
 
   // ── Helper: find the most recent test-result event for a ticket ───────────
   interface FailedFlow { name: string; summary: string; runUrl?: string; suiteName: string }
-  interface TestResult { timestamp: string; environment: string; passed: boolean; failedFlows: FailedFlow[] }
+  interface TestResult {
+    timestamp:   string;
+    environment: string;
+    passed:      boolean;
+    testSummary: string;   // AI-generated summary from the activity log event
+    failedFlows: FailedFlow[];
+  }
 
   function latestResult(ticket: ticketStore.TicketRecord, env: string | null): TestResult | null {
     const events = ticket.events
@@ -318,28 +324,43 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       timestamp:   ev.timestamp,
       environment: String(ev.details?.environment ?? 'unknown'),
       passed:      failedFlows.length === 0,
+      testSummary: String(ev.details?.testSummary ?? ''),
       failedFlows,
     };
   }
 
-  // ── Build blockers for a ticket set ──────────────────────────────────────
+  // ── Blocker + manual-ticket shapes ───────────────────────────────────────
   interface Blocker {
-    type:        'no_link' | 'test_failed' | 'never_tested';
-    ticketKey:   string;
-    ticketTitle: string;
-    jiraStatus:  string;
-    jiraUrl:     string;
+    type:         'no_link' | 'test_failed' | 'never_tested';
+    ticketKey:    string;
+    ticketTitle:  string;
+    jiraStatus:   string;
+    jiraUrl:      string;
+    testSummary?: string;
     failedFlows?: FailedFlow[];
   }
+  interface ManualTicket {
+    ticketKey:   string;
+    ticketTitle: string;
+    jiraUrl:     string;
+  }
 
-  function buildBlockers(tickets: ticketStore.TicketRecord[], env: string | null): Blocker[] {
-    const blockers: Blocker[] = [];
+  function buildCardData(
+    tickets: ticketStore.TicketRecord[],
+    env: string | null,
+  ): { blockers: Blocker[]; manualTestTickets: ManualTicket[] } {
+    const blockers:          Blocker[]       = [];
+    const manualTestTickets: ManualTicket[]  = [];
+
     for (const ticket of tickets) {
       const jiraUrl = `${config.jiraBaseUrl}/browse/${ticket.key}`;
       const title   = ticket.title || ticket.key;
       const status  = ticket.jiraStatus ?? '';
 
-      if (ticket.noTestNeeded) continue;
+      if (ticket.noTestNeeded) {
+        manualTestTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
+        continue;
+      }
 
       if (!linkedKeys.has(ticket.key)) {
         blockers.push({ type: 'no_link', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
@@ -350,27 +371,31 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       if (!result) {
         blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
       } else if (!result.passed) {
-        blockers.push({ type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, failedFlows: result.failedFlows });
+        blockers.push({
+          type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl,
+          testSummary: result.testSummary || undefined,
+          failedFlows: result.failedFlows,
+        });
       }
     }
-    return blockers;
+    return { blockers, manualTestTickets };
   }
 
-  // Staging readiness: Dev tickets checked against their most recent test run (any env)
-  const stagingBlockers = buildBlockers(devTickets, null);
-  // Production readiness: Staging tickets checked against their most recent staging test run
-  const prodBlockers    = buildBlockers(stgTickets, 'staging');
+  const stagingData = buildCardData(devTickets, null);
+  const prodData    = buildCardData(stgTickets, 'staging');
 
   res.json({
     staging: {
-      ready:          stagingBlockers.length === 0,
-      checkedTickets: devTickets.length,
-      blockers:       stagingBlockers,
+      ready:             stagingData.blockers.length === 0,
+      checkedTickets:    devTickets.length,
+      blockers:          stagingData.blockers,
+      manualTestTickets: stagingData.manualTestTickets,
     },
     production: {
-      ready:          prodBlockers.length === 0,
-      checkedTickets: stgTickets.length,
-      blockers:       prodBlockers,
+      ready:             prodData.blockers.length === 0,
+      checkedTickets:    stgTickets.length,
+      blockers:          prodData.blockers,
+      manualTestTickets: prodData.manualTestTickets,
     },
   });
 });
