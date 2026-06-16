@@ -298,7 +298,13 @@
     .dash-divider { border:none; border-top:1px solid var(--border); margin:16px 0 12px; }
     .dash-blockers { display:flex; flex-direction:column; gap:10px; }
     .dash-blocker { background:var(--bg); border:1px solid rgba(239,68,68,.2); border-radius:8px; padding:10px 14px; }
-    .dash-blocker-header { display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
+    .dash-blocker-header { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+    .dash-blocker-header.collapsible { cursor:pointer; user-select:none; border-radius:4px; padding:2px 4px; margin:-2px -4px; }
+    .dash-blocker-header.collapsible:hover { background:rgba(255,255,255,.04); }
+    .dash-blocker-chevron { font-size:10px; color:var(--muted); transition:transform .2s; flex-shrink:0; margin-left:2px; }
+    .dash-blocker.collapsed .dash-blocker-chevron { transform:rotate(-90deg); }
+    .dash-blocker-body { margin-top:2px; }
+    .dash-blocker.collapsed .dash-blocker-body { display:none; }
     .dash-blocker-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-blocker-key:hover { text-decoration:underline; }
     .dash-blocker-title { font-size:12px; color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1973,54 +1979,77 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, manualI
         b.type === 'test_failed' ? 'Tests failing' : 'Not tested'
       );
       header.appendChild(reasonEl);
-      item.appendChild(header);
 
-      // AI summary (for test_failed blockers that have one)
-      if (b.testSummary) {
-        const sumEl = document.createElement('p');
-        sumEl.className = 'dash-blocker-summary';
-        sumEl.textContent = b.testSummary;
-        item.appendChild(sumEl);
+      // Build collapsible body (summary + flow list) for test_failed blockers
+      const hasBody = b.type === 'test_failed' && (b.testSummary || (b.failedFlows && b.failedFlows.length));
+      if (hasBody) {
+        const chevron = document.createElement('span');
+        chevron.className = 'dash-blocker-chevron';
+        chevron.textContent = '▾';
+        header.appendChild(chevron);
+        header.classList.add('collapsible');
+        header.addEventListener('click', (e) => {
+          // Don't collapse when clicking the Jira link itself
+          if (e.target === keyEl) return;
+          item.classList.toggle('collapsed');
+        });
       }
 
-      // Failing flow list with per-flow Autosana reason
-      if (b.failedFlows && b.failedFlows.length) {
-        const flowList = document.createElement('ul');
-        flowList.className = 'dash-blocker-flows';
-        for (const f of b.failedFlows) {
-          const li = document.createElement('li');
-          li.className = 'dash-blocker-flow';
+      item.appendChild(header);
 
-          const nameEl = document.createElement('span');
-          nameEl.className = 'dash-blocker-flow-name';
-          nameEl.textContent = '✗ ' + f.name;
-          li.appendChild(nameEl);
+      if (hasBody) {
+        const body = document.createElement('div');
+        body.className = 'dash-blocker-body';
 
-          if (f.suiteName) {
-            const suiteEl = document.createElement('span');
-            suiteEl.className = 'dash-blocker-flow-suite';
-            suiteEl.textContent = f.suiteName;
-            li.appendChild(suiteEl);
-          }
-          if (f.runUrl) {
-            const link = document.createElement('a');
-            link.className = 'dash-blocker-flow-link';
-            link.href = f.runUrl;
-            link.target = '_blank';
-            link.textContent = '↗ View';
-            li.appendChild(link);
-          }
-          flowList.appendChild(li);
-
-          // Per-flow failure reason on its own line below
-          if (f.summary) {
-            const reasonRow = document.createElement('li');
-            reasonRow.className = 'dash-blocker-flow-reason';
-            reasonRow.textContent = f.summary;
-            flowList.appendChild(reasonRow);
-          }
+        // AI summary
+        if (b.testSummary) {
+          const sumEl = document.createElement('p');
+          sumEl.className = 'dash-blocker-summary';
+          sumEl.textContent = b.testSummary;
+          body.appendChild(sumEl);
         }
-        item.appendChild(flowList);
+
+        // Failing flow list with per-flow Autosana reason
+        if (b.failedFlows && b.failedFlows.length) {
+          const flowList = document.createElement('ul');
+          flowList.className = 'dash-blocker-flows';
+          for (const f of b.failedFlows) {
+            const li = document.createElement('li');
+            li.className = 'dash-blocker-flow';
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'dash-blocker-flow-name';
+            nameEl.textContent = '✗ ' + f.name;
+            li.appendChild(nameEl);
+
+            if (f.suiteName) {
+              const suiteEl = document.createElement('span');
+              suiteEl.className = 'dash-blocker-flow-suite';
+              suiteEl.textContent = f.suiteName;
+              li.appendChild(suiteEl);
+            }
+            if (f.runUrl) {
+              const link = document.createElement('a');
+              link.className = 'dash-blocker-flow-link';
+              link.href = f.runUrl;
+              link.target = '_blank';
+              link.textContent = '↗ View';
+              li.appendChild(link);
+            }
+            flowList.appendChild(li);
+
+            // Per-flow failure reason on its own line below
+            if (f.summary) {
+              const reasonRow = document.createElement('li');
+              reasonRow.className = 'dash-blocker-flow-reason';
+              reasonRow.textContent = f.summary;
+              flowList.appendChild(reasonRow);
+            }
+          }
+          body.appendChild(flowList);
+        }
+
+        item.appendChild(body);
       }
 
       list.appendChild(item);
