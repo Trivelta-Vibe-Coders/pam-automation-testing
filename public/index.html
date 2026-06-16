@@ -320,6 +320,16 @@
     .dash-blocker-flow-link:hover { opacity:1; text-decoration:underline; }
     .dash-blocker-summary { font-size:11px; color:var(--muted); line-height:1.55; margin:6px 0 4px; font-style:italic; }
     .dash-blocker-flow-reason { font-size:10px; color:var(--muted); opacity:.75; padding-left:18px; margin-top:1px; line-height:1.4; }
+    /* Passing tickets section */
+    .dash-passing-header { display:flex; align-items:center; gap:8px; }
+    .dash-passing-icon { font-size:12px; color:var(--green); }
+    .dash-passing-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); flex:1; }
+    .dash-passing-count { background:rgba(34,197,94,.12); color:var(--green); border-radius:999px; padding:1px 7px; font-size:10px; font-weight:600; }
+    .dash-passing-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+    .dash-passing-item { display:flex; align-items:baseline; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(34,197,94,.18); border-radius:6px; }
+    .dash-passing-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
+    .dash-passing-key:hover { text-decoration:underline; }
+    .dash-passing-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* Manual testing section */
     .dash-manual { }
     .dash-manual-header { display:flex; align-items:center; gap:8px; }
@@ -451,6 +461,7 @@
       </div>
       <div class="dash-checked" id="dash-stg-checked"></div>
       <div id="dash-stg-blockers"></div>
+      <div id="dash-stg-passing"></div>
       <div id="dash-stg-manual"></div>
     </div>
     <!-- Production card -->
@@ -462,6 +473,7 @@
       </div>
       <div class="dash-checked" id="dash-prod-checked"></div>
       <div id="dash-prod-blockers"></div>
+      <div id="dash-prod-passing"></div>
       <div id="dash-prod-manual"></div>
     </div>
   </div>
@@ -1911,12 +1923,13 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, manualId, data }) {
+function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, passingId, manualId, data }) {
   const card       = document.getElementById(cardId);
   const badge      = document.getElementById(badgeId);
   const sub        = document.getElementById(subId);
   const checked    = document.getElementById(checkedId);
   const blockersEl = document.getElementById(blockersId);
+  const passingEl  = document.getElementById(passingId);
   const manualEl   = document.getElementById(manualId);
 
   badge.className = 'dash-verdict-badge ' + (data.ready ? 'yes' : 'no');
@@ -2058,6 +2071,59 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, manualI
     blockersEl.appendChild(list);
   }
 
+  // ── Passing tickets section ─────────────────────────────────────────────
+  passingEl.innerHTML = '';
+  if (data.passingTickets && data.passingTickets.length) {
+    const hr3 = document.createElement('hr');
+    hr3.className = 'dash-divider';
+    passingEl.appendChild(hr3);
+
+    const section = document.createElement('div');
+
+    const pHeader = document.createElement('div');
+    pHeader.className = 'dash-passing-header';
+
+    const pIcon = document.createElement('span');
+    pIcon.className = 'dash-passing-icon';
+    pIcon.textContent = '✓';
+    pHeader.appendChild(pIcon);
+
+    const pLabel = document.createElement('span');
+    pLabel.className = 'dash-passing-label';
+    pLabel.textContent = 'Passing';
+    pHeader.appendChild(pLabel);
+
+    const pCnt = document.createElement('span');
+    pCnt.className = 'dash-passing-count';
+    pCnt.textContent = String(data.passingTickets.length);
+    pHeader.appendChild(pCnt);
+    section.appendChild(pHeader);
+
+    const pList = document.createElement('ul');
+    pList.className = 'dash-passing-list';
+    for (const t of data.passingTickets) {
+      const li = document.createElement('li');
+      li.className = 'dash-passing-item';
+
+      const keyLink = document.createElement('a');
+      keyLink.className = 'dash-passing-key';
+      keyLink.href = t.jiraUrl;
+      keyLink.target = '_blank';
+      keyLink.textContent = t.ticketKey;
+      li.appendChild(keyLink);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'dash-passing-title';
+      titleSpan.title = t.ticketTitle;
+      titleSpan.textContent = t.ticketTitle;
+      li.appendChild(titleSpan);
+
+      pList.appendChild(li);
+    }
+    section.appendChild(pList);
+    passingEl.appendChild(section);
+  }
+
   // ── Check for Manual Testing section ───────────────────────────────────
   manualEl.innerHTML = '';
   if (data.manualTestTickets && data.manualTestTickets.length) {
@@ -2126,7 +2192,7 @@ async function loadDashboard() {
   for (const id of ['dash-stg-checked','dash-prod-checked']) {
     document.getElementById(id).textContent = '';
   }
-  for (const id of ['dash-stg-blockers','dash-prod-blockers','dash-stg-manual','dash-prod-manual']) {
+  for (const id of ['dash-stg-blockers','dash-prod-blockers','dash-stg-passing','dash-prod-passing','dash-stg-manual','dash-prod-manual']) {
     document.getElementById(id).innerHTML = '';
   }
   document.getElementById('dash-card-stg').style.borderColor = '';
@@ -2134,8 +2200,8 @@ async function loadDashboard() {
 
   try {
     const data = await fetch('/api/dashboard').then(r => r.json());
-    renderDashCard({ cardId:'dash-card-stg',  badgeId:'dash-stg-badge',  subId:'dash-stg-sub',  checkedId:'dash-stg-checked',  blockersId:'dash-stg-blockers',  manualId:'dash-stg-manual',  data: data.staging });
-    renderDashCard({ cardId:'dash-card-prod', badgeId:'dash-prod-badge', subId:'dash-prod-sub', checkedId:'dash-prod-checked', blockersId:'dash-prod-blockers', manualId:'dash-prod-manual', data: data.production });
+    renderDashCard({ cardId:'dash-card-stg',  badgeId:'dash-stg-badge',  subId:'dash-stg-sub',  checkedId:'dash-stg-checked',  blockersId:'dash-stg-blockers',  passingId:'dash-stg-passing',  manualId:'dash-stg-manual',  data: data.staging });
+    renderDashCard({ cardId:'dash-card-prod', badgeId:'dash-prod-badge', subId:'dash-prod-sub', checkedId:'dash-prod-checked', blockersId:'dash-prod-blockers', passingId:'dash-prod-passing', manualId:'dash-prod-manual', data: data.production });
     document.getElementById('dash-refresh-ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch (err) {
     for (const id of ['dash-stg-sub','dash-prod-sub']) {

@@ -339,7 +339,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     testSummary?: string;
     failedFlows?: FailedFlow[];
   }
-  interface ManualTicket {
+  interface SimpleTicket {
     ticketKey:   string;
     ticketTitle: string;
     jiraUrl:     string;
@@ -348,9 +348,10 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
   function buildCardData(
     tickets: ticketStore.TicketRecord[],
     env: string | null,
-  ): { blockers: Blocker[]; manualTestTickets: ManualTicket[] } {
+  ): { blockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[] } {
     const blockers:          Blocker[]       = [];
-    const manualTestTickets: ManualTicket[]  = [];
+    const passingTickets:    SimpleTicket[]  = [];
+    const manualTestTickets: SimpleTicket[]  = [];
 
     for (const ticket of tickets) {
       const jiraUrl = `${config.jiraBaseUrl}/browse/${ticket.key}`;
@@ -376,9 +377,11 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
           testSummary: result.testSummary || undefined,
           failedFlows: result.failedFlows,
         });
+      } else {
+        passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
       }
     }
-    return { blockers, manualTestTickets };
+    return { blockers, passingTickets, manualTestTickets };
   }
 
   const stagingData = buildCardData(devTickets, null);
@@ -389,12 +392,14 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       ready:             stagingData.blockers.length === 0,
       checkedTickets:    devTickets.length,
       blockers:          stagingData.blockers,
+      passingTickets:    stagingData.passingTickets,
       manualTestTickets: stagingData.manualTestTickets,
     },
     production: {
       ready:             prodData.blockers.length === 0,
       checkedTickets:    stgTickets.length,
       blockers:          prodData.blockers,
+      passingTickets:    prodData.passingTickets,
       manualTestTickets: prodData.manualTestTickets,
     },
   });
