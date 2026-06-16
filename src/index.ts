@@ -267,17 +267,19 @@ app.post('/api/register-webhook', async (req: Request, res: Response) => {
 });
 
 // ── API: deployment readiness dashboard ──────────────────────────────────────
-const DONE_RE = /^(done|closed|resolved|cancelled|won'?t\s*do|won'?t\s*fix|duplicate|invalid|complete[d]?)$/i;
+// Status patterns — kept in sync with the client-side jiraStatusClass() logic
+const DEV_STATUS_RE = /^(dev|in dev)$/i;          // tickets ready to move to staging
+const STG_STATUS_RE = /^(stg|staging|stage)$/i;   // tickets ready to move to production
 
 app.get('/api/dashboard', (_req: Request, res: Response) => {
   const allTickets = ticketStore.getAllTickets();
   const allLinks   = flowLinks.getAllLinks();
   const linkedKeys = new Set(allLinks.map(l => l.jiraKey));
 
-  // Only tickets in an active sprint that haven't been completed
-  const activeTickets = allTickets.filter(t =>
-    t.sprintIsActive && !DONE_RE.test(t.jiraStatus ?? ''),
-  );
+  // "Ready for Stg?" checks tickets currently in Dev — they're about to be pushed to staging
+  const devTickets = allTickets.filter(t => t.sprintIsActive && DEV_STATUS_RE.test(t.jiraStatus ?? ''));
+  // "Ready for Prod?" checks tickets currently in Staging — they're about to go to production
+  const stgTickets = allTickets.filter(t => t.sprintIsActive && STG_STATUS_RE.test(t.jiraStatus ?? ''));
 
   // ── Helper: find the most recent test-result event for a ticket ───────────
   interface FailedFlow { name: string; summary: string; runUrl?: string; suiteName: string }
@@ -320,58 +322,54 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     };
   }
 
-  // ── Blocker shape ─────────────────────────────────────────────────────────
+  // ── Build blockers for a ticket set ──────────────────────────────────────
   interface Blocker {
     type:        'no_link' | 'test_failed' | 'never_tested';
     ticketKey:   string;
     ticketTitle: string;
+    jiraStatus:  string;
     jiraUrl:     string;
     failedFlows?: FailedFlow[];
   }
 
-  const stagingBlockers: Blocker[] = [];
-  const prodBlockers:    Blocker[] = [];
-  const base = config.jiraBaseUrl;
+  function buildBlockers(tickets: ticketStore.TicketRecord[], env: string | null): Blocker[] {
+    const blockers: Blocker[] = [];
+    for (const ticket of tickets) {
+      const jiraUrl = `${config.jiraBaseUrl}/browse/${ticket.key}`;
+      const title   = ticket.title || ticket.key;
+      const status  = ticket.jiraStatus ?? '';
 
-  for (const ticket of activeTickets) {
-    const jiraUrl = `${base}/browse/${ticket.key}`;
-    const title   = ticket.title || ticket.key;
+      if (ticket.noTestNeeded) continue;
 
-    if (ticket.noTestNeeded) continue;
+      if (!linkedKeys.has(ticket.key)) {
+        blockers.push({ type: 'no_link', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
+        continue;
+      }
 
-    if (!linkedKeys.has(ticket.key)) {
-      const b: Blocker = { type: 'no_link', ticketKey: ticket.key, ticketTitle: title, jiraUrl };
-      stagingBlockers.push(b);
-      prodBlockers.push(b);
-      continue;
+      const result = latestResult(ticket, env);
+      if (!result) {
+        blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
+      } else if (!result.passed) {
+        blockers.push({ type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, failedFlows: result.failedFlows });
+      }
     }
-
-    // Staging card: most recent run on any environment
-    const anyResult = latestResult(ticket, null);
-    if (!anyResult) {
-      stagingBlockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraUrl });
-    } else if (!anyResult.passed) {
-      stagingBlockers.push({ type: 'test_failed',  ticketKey: ticket.key, ticketTitle: title, jiraUrl, failedFlows: anyResult.failedFlows });
-    }
-
-    // Prod card: most recent STAGING run specifically
-    const stgResult = latestResult(ticket, 'staging');
-    if (!stgResult) {
-      prodBlockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraUrl });
-    } else if (!stgResult.passed) {
-      prodBlockers.push({ type: 'test_failed',  ticketKey: ticket.key, ticketTitle: title, jiraUrl, failedFlows: stgResult.failedFlows });
-    }
+    return blockers;
   }
+
+  // Staging readiness: Dev tickets checked against their most recent test run (any env)
+  const stagingBlockers = buildBlockers(devTickets, null);
+  // Production readiness: Staging tickets checked against their most recent staging test run
+  const prodBlockers    = buildBlockers(stgTickets, 'staging');
 
   res.json({
     staging: {
       ready:          stagingBlockers.length === 0,
-      checkedTickets: activeTickets.length,
+      checkedTickets: devTickets.length,
       blockers:       stagingBlockers,
     },
     production: {
       ready:          prodBlockers.length === 0,
-      checkedTickets: activeTickets.length,
+      checkedTickets: stgTickets.length,
       blockers:       prodBlockers,
     },
   });

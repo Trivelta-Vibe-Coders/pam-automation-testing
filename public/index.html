@@ -329,9 +329,9 @@
 </header>
 
 <div class="tab-bar">
-  <div class="tab active" data-tab="log">Activity Log</div>
+  <div class="tab active" data-tab="dashboard">Dashboard</div>
+  <div class="tab" data-tab="log">Activity Log</div>
   <div class="tab" data-tab="runner">Test Runner</div>
-  <div class="tab" data-tab="dashboard">Dashboard</div>
 </div>
 
 <div class="stats">
@@ -342,7 +342,7 @@
 </div>
 
 <!-- Activity Log -->
-<div class="panel active" id="panel-log">
+<div class="panel" id="panel-log">
   <div class="log-section">
     <div class="panel-header">
       Activity Log <span class="count" id="event-count">0</span>
@@ -417,7 +417,7 @@
 </div>
 
 <!-- Dashboard -->
-<div class="panel" id="panel-dashboard">
+<div class="panel active" id="panel-dashboard">
   <div class="dash-refresh">
     <button class="dash-refresh-btn" id="dash-refresh-btn">↺ Refresh</button>
     <span class="dash-refresh-ts" id="dash-refresh-ts"></span>
@@ -1555,6 +1555,7 @@ function connect() {
     await loadConfig(); // must load before loadTickets so Jira URLs are ready
     loadLinks();
     loadTickets();
+    loadDashboard();
   };
 
   es.onmessage = e => {
@@ -1899,17 +1900,21 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, data })
   badge.className = 'dash-verdict-badge ' + (data.ready ? 'yes' : 'no');
   badge.textContent = data.ready ? '✓ YES' : '✗ NO';
 
+  const isStg = cardId === 'dash-card-stg';
   if (data.ready) {
-    sub.textContent = 'All active sprint tickets are good to go.';
+    sub.textContent = isStg
+      ? 'All Dev tickets have passed tests — safe to push to staging.'
+      : 'All Staging tickets have passed tests — safe to push to production.';
     card.style.borderColor = 'rgba(34,197,94,.35)';
   } else {
     sub.textContent = `${data.blockers.length} blocker${data.blockers.length !== 1 ? 's' : ''} need${data.blockers.length === 1 ? 's' : ''} attention.`;
     card.style.borderColor = 'rgba(239,68,68,.35)';
   }
 
+  const envLabel = isStg ? 'Dev' : 'Staging';
   checked.textContent = data.checkedTickets === 0
-    ? 'No active sprint tickets found.'
-    : `Checking ${data.checkedTickets} active sprint ticket${data.checkedTickets !== 1 ? 's' : ''}.`;
+    ? `No tickets currently in ${envLabel}.`
+    : `Checking ${data.checkedTickets} ticket${data.checkedTickets !== 1 ? 's' : ''} in ${envLabel}.`;
 
   blockersEl.innerHTML = '';
   if (!data.blockers.length) return;
