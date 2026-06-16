@@ -218,20 +218,28 @@ const SUITE_NAMES = [
   'PAM Users Tab',
   'PAM Casino Reports',
   'PAM Agent Audit Log',
+  'PAM KPIs',
+  'PAM Staff and Permissions',
+  'PAM Withdrawal Review',
+  'PAM UTM Reports',
 ] as const;
 
 /**
  * Ask Claude which PAM suite best fits this ticket.
- * Returns one of the four suite names.
+ * Returns one of the suite names.
  */
 export async function detectSuite(ticket: TicketContext): Promise<string> {
   const prompt = `You are a QA architect. Classify this Jira ticket into exactly one Autosana test suite.
 
 SUITES:
-- PAM Affiliates     — affiliate management, revenue share, partner portals
-- PAM Users Tab      — user accounts, profile management, bet history, sports bets, casino bets, transactions
-- PAM Casino Reports — casino reporting, sort/filter, data exports, KPIs, analytics
-- PAM Agent Audit Log — agent activity logs, audit trails, admin actions
+- PAM Affiliates          — affiliate management, revenue share, partner portals
+- PAM Users Tab           — user accounts, profile management, bet history, sports bets, casino bets, transactions
+- PAM Casino Reports      — casino reporting, sort/filter, data exports, KPIs, analytics
+- PAM Agent Audit Log     — agent activity logs, audit trails, admin actions
+- PAM KPIs                — key performance indicators, business metrics dashboards
+- PAM Staff and Permissions — staff accounts, role management, permission settings
+- PAM Withdrawal Review   — withdrawal requests, review queues, approval workflows
+- PAM UTM Reports         — UTM tracking, campaign attribution, marketing analytics
 
 TICKET
 Key: ${ticket.key}

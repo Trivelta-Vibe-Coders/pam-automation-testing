@@ -32,6 +32,7 @@ export const config = {
     'PAM KPIs':                optional_env('SUITE_ID_KPIS',               'd02667b6-39a8-42c1-a6f3-4c7b96394a48'),
     'PAM Staff and Permissions':optional_env('SUITE_ID_STAFF_PERMISSIONS', '76fcec83-bce9-4ce5-9c10-a37096cacf2c'),
     'PAM Withdrawal Review':   optional_env('SUITE_ID_WITHDRAWAL_REVIEW',  '2ebb9619-c286-465c-8f8d-64ca4978c219'),
+    'PAM UTM Reports':         optional_env('SUITE_ID_UTM_REPORTS',        '642f5b65-25a0-4c68-9042-889131d03a90'),
   } as Record<string, string>,
 
   // Jira status names that trigger test runs

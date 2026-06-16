@@ -178,7 +178,11 @@
     .link-form input:focus { outline:none; border-color:var(--indigo); }
     .link-flow-search { margin-bottom:4px; }
     .link-flow-picker { border:1px solid var(--border); border-radius:5px; background:var(--bg2); max-height:180px; overflow-y:auto; }
-    .link-flow-group-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:6px 10px 2px; display:block; }
+    .link-flow-group-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:6px 10px 4px; display:flex; align-items:center; gap:5px; cursor:pointer; user-select:none; }
+    .link-flow-group-label:hover { color:var(--text); }
+    .link-flow-group-chevron { font-size:9px; transition:transform .15s; flex-shrink:0; }
+    .link-flow-group.collapsed .link-flow-group-chevron { transform:rotate(-90deg); }
+    .link-flow-group.collapsed .link-flow-option { display:none; }
     .link-flow-option { display:flex; align-items:center; gap:8px; padding:5px 10px; cursor:pointer; transition:background .1s; min-width:0; }
     .link-flow-option:hover { background:var(--bg3); }
     .link-flow-option input[type="checkbox"] { accent-color:var(--indigo); cursor:pointer; flex-shrink:0; width:13px; height:13px; }
@@ -401,8 +405,11 @@
     <!-- Add-link form (hidden until "+ Link a Flow" is clicked) -->
     <div class="link-form" id="link-form">
       <div>
-        <label for="link-jira-input">Jira Key</label>
-        <input type="text" id="link-jira-input" placeholder="PAMENG-123" autocomplete="off" spellcheck="false" />
+        <label for="link-jira-input">Ticket #</label>
+        <div style="display:flex;align-items:center;gap:0">
+          <span style="padding:7px 8px 7px 10px;background:var(--bg3);border:1px solid var(--border);border-right:none;border-radius:5px 0 0 5px;font-size:12px;color:var(--muted);white-space:nowrap;line-height:1">PAMENG-</span>
+          <input type="text" id="link-jira-input" placeholder="123" autocomplete="off" spellcheck="false" inputmode="numeric" style="border-radius:0 5px 5px 0;flex:1;min-width:0" />
+        </div>
       </div>
       <div>
         <label>Flows</label>
@@ -1472,15 +1479,24 @@ async function populateFlowPicker() {
     for (const suite of suites) {
       if (!suite.flows.length) continue;
       const grp = document.createElement('div');
-      grp.className = 'link-flow-group';
-      grp.innerHTML = `<span class="link-flow-group-label">${esc(suite.suite_name)}</span>`;
+      grp.className = 'link-flow-group collapsed'; // start collapsed
+      // Suite header with chevron toggle
+      const labelEl = document.createElement('span');
+      labelEl.className = 'link-flow-group-label';
+      labelEl.innerHTML = `<span class="link-flow-group-chevron">▾</span>${esc(suite.suite_name)}`;
+      labelEl.addEventListener('click', () => grp.classList.toggle('collapsed'));
+      grp.appendChild(labelEl);
       for (const f of suite.flows) {
         const lbl = document.createElement('label');
         lbl.className = 'link-flow-option';
         lbl.innerHTML =
           `<input type="checkbox" value="${esc(f.id)}" data-name="${esc(f.name)}" />` +
           `<span>${esc(f.name)}</span>`;
-        lbl.querySelector('input').addEventListener('change', checkLinkFormValid);
+        lbl.querySelector('input').addEventListener('change', () => {
+          // Auto-expand the suite when a flow inside it is checked
+          if (lbl.querySelector('input').checked) grp.classList.remove('collapsed');
+          checkLinkFormValid();
+        });
         grp.appendChild(lbl);
       }
       picker.appendChild(grp);
@@ -1498,10 +1514,15 @@ function checkedFlows() {
   return [...document.querySelectorAll('#link-flow-picker input[type="checkbox"]:checked')];
 }
 
+function linkJiraKey() {
+  const num = (document.getElementById('link-jira-input').value ?? '').trim();
+  return num ? `PAMENG-${num}` : '';
+}
+
 function checkLinkFormValid() {
-  const key = (document.getElementById('link-jira-input').value ?? '').trim();
+  const num = (document.getElementById('link-jira-input').value ?? '').trim();
   document.getElementById('link-form-save').disabled =
-    !(key && /^[A-Z]+-\d+$/i.test(key) && checkedFlows().length > 0);
+    !(/^\d+$/.test(num) && checkedFlows().length > 0);
 }
 
 function openLinkForm() {
@@ -1512,9 +1533,10 @@ function openLinkForm() {
   document.getElementById('link-flow-search').value = '';
   document.getElementById('link-form-save').disabled = true;
   document.getElementById('link-form-save').textContent = 'Save';
-  // Un-check any previously checked flows and show all
+  // Un-check flows, reset visibility, collapse all suites back to default
   document.querySelectorAll('#link-flow-picker input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-  document.querySelectorAll('.link-flow-option,.link-flow-group-label,.link-flow-group').forEach(el => { el.style.display = ''; });
+  document.querySelectorAll('.link-flow-option,.link-flow-group').forEach(el => { el.style.display = ''; });
+  document.querySelectorAll('.link-flow-group').forEach(grp => grp.classList.add('collapsed'));
   populateFlowPicker().then(() => document.getElementById('link-jira-input').focus());
 }
 
@@ -1534,6 +1556,9 @@ document.getElementById('link-flow-search').addEventListener('input', e => {
       if (match) any = true;
     });
     grp.style.display = any ? '' : 'none';
+    // Expand groups with hits, collapse back to default when search is cleared
+    if (q && any) grp.classList.remove('collapsed');
+    else if (!q)  grp.classList.add('collapsed');
   });
 });
 
@@ -1542,7 +1567,7 @@ document.getElementById('link-form-cancel').addEventListener('click', closeLinkF
 document.getElementById('link-jira-input').addEventListener('input', checkLinkFormValid);
 
 document.getElementById('link-form-save').addEventListener('click', async () => {
-  const jiraKey  = (document.getElementById('link-jira-input').value ?? '').trim().toUpperCase();
+  const jiraKey  = linkJiraKey().toUpperCase();
   const selected = checkedFlows();
   const saveBtn  = document.getElementById('link-form-save');
   const errEl    = document.getElementById('link-form-error');
