@@ -175,7 +175,7 @@ export function startPolling(params: {
         const logFn = totalFailed === 0 ? logger.success : logger.warn;
         logFn(
           testSummary ?? `Test results: ${totalPassed} passed, ${totalFailed} failed`,
-          { triggeredBy, batchId, testResults: allResults, testSummary },
+          { triggeredBy, batchId, environment, testResults: allResults, testSummary },
         );
       }
 

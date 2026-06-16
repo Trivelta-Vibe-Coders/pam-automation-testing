@@ -266,6 +266,117 @@ app.post('/api/register-webhook', async (req: Request, res: Response) => {
   }
 });
 
+// ── API: deployment readiness dashboard ──────────────────────────────────────
+const DONE_RE = /^(done|closed|resolved|cancelled|won'?t\s*do|won'?t\s*fix|duplicate|invalid|complete[d]?)$/i;
+
+app.get('/api/dashboard', (_req: Request, res: Response) => {
+  const allTickets = ticketStore.getAllTickets();
+  const allLinks   = flowLinks.getAllLinks();
+  const linkedKeys = new Set(allLinks.map(l => l.jiraKey));
+
+  // Only tickets in an active sprint that haven't been completed
+  const activeTickets = allTickets.filter(t =>
+    t.sprintIsActive && !DONE_RE.test(t.jiraStatus ?? ''),
+  );
+
+  // ── Helper: find the most recent test-result event for a ticket ───────────
+  interface FailedFlow { name: string; summary: string; runUrl?: string; suiteName: string }
+  interface TestResult { timestamp: string; environment: string; passed: boolean; failedFlows: FailedFlow[] }
+
+  function latestResult(ticket: ticketStore.TicketRecord, env: string | null): TestResult | null {
+    const events = ticket.events
+      .filter(e => Array.isArray(e.details?.testResults))
+      .filter(e => env === null || e.details?.environment === env)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+    if (!events.length) return null;
+    const ev   = events[0];
+    const rows = ev.details!.testResults as Array<{
+      suiteName:      string;
+      runUrl?:        string;
+      passed:         number;
+      failed:         number;
+      allFlowDetails?: Array<{ name: string; status: string; summary: string }>;
+      failedFlowDetails?: Array<{ name: string; summary: string }>;
+    }>;
+
+    const failedFlows: FailedFlow[] = rows.flatMap(r => {
+      const flows = r.allFlowDetails
+        ? r.allFlowDetails.filter(f => f.status !== 'passed')
+        : (r.failedFlowDetails ?? []);
+      return flows.map(f => ({
+        name:      f.name,
+        summary:   f.summary ?? '',
+        runUrl:    r.runUrl,
+        suiteName: r.suiteName,
+      }));
+    });
+
+    return {
+      timestamp:   ev.timestamp,
+      environment: String(ev.details?.environment ?? 'unknown'),
+      passed:      failedFlows.length === 0,
+      failedFlows,
+    };
+  }
+
+  // ── Blocker shape ─────────────────────────────────────────────────────────
+  interface Blocker {
+    type:        'no_link' | 'test_failed' | 'never_tested';
+    ticketKey:   string;
+    ticketTitle: string;
+    jiraUrl:     string;
+    failedFlows?: FailedFlow[];
+  }
+
+  const stagingBlockers: Blocker[] = [];
+  const prodBlockers:    Blocker[] = [];
+  const base = config.jiraBaseUrl;
+
+  for (const ticket of activeTickets) {
+    const jiraUrl = `${base}/browse/${ticket.key}`;
+    const title   = ticket.title || ticket.key;
+
+    if (ticket.noTestNeeded) continue;
+
+    if (!linkedKeys.has(ticket.key)) {
+      const b: Blocker = { type: 'no_link', ticketKey: ticket.key, ticketTitle: title, jiraUrl };
+      stagingBlockers.push(b);
+      prodBlockers.push(b);
+      continue;
+    }
+
+    // Staging card: most recent run on any environment
+    const anyResult = latestResult(ticket, null);
+    if (!anyResult) {
+      stagingBlockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraUrl });
+    } else if (!anyResult.passed) {
+      stagingBlockers.push({ type: 'test_failed',  ticketKey: ticket.key, ticketTitle: title, jiraUrl, failedFlows: anyResult.failedFlows });
+    }
+
+    // Prod card: most recent STAGING run specifically
+    const stgResult = latestResult(ticket, 'staging');
+    if (!stgResult) {
+      prodBlockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraUrl });
+    } else if (!stgResult.passed) {
+      prodBlockers.push({ type: 'test_failed',  ticketKey: ticket.key, ticketTitle: title, jiraUrl, failedFlows: stgResult.failedFlows });
+    }
+  }
+
+  res.json({
+    staging: {
+      ready:          stagingBlockers.length === 0,
+      checkedTickets: activeTickets.length,
+      blockers:       stagingBlockers,
+    },
+    production: {
+      ready:          prodBlockers.length === 0,
+      checkedTickets: activeTickets.length,
+      blockers:       prodBlockers,
+    },
+  });
+});
+
 // ── Webhook routes ────────────────────────────────────────────────────────────
 app.use('/webhook/jira', webhookRouter);
 

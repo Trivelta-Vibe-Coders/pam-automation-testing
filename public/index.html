@@ -283,6 +283,40 @@
     .refresh-btn:hover { border-color:var(--indigo); color:var(--indigo); }
 
     ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+    /* ── Dashboard ── */
+    #panel-dashboard { flex-direction:column; overflow-y:auto; padding:28px; gap:24px; align-items:flex-start; }
+    .dash-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; width:100%; max-width:880px; }
+    .dash-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:24px 28px; display:flex; flex-direction:column; }
+    .dash-card-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.9px; color:var(--muted); margin-bottom:18px; }
+    .dash-verdict { display:flex; align-items:center; gap:14px; margin-bottom:4px; }
+    .dash-verdict-badge { font-size:42px; font-weight:800; line-height:1; }
+    .dash-verdict-badge.yes { color:var(--green); }
+    .dash-verdict-badge.no  { color:var(--red); }
+    .dash-verdict-sub { font-size:12px; color:var(--muted); line-height:1.5; }
+    .dash-checked { font-size:11px; color:var(--muted); margin-top:10px; }
+    .dash-divider { border:none; border-top:1px solid var(--border); margin:16px 0 12px; }
+    .dash-blockers { display:flex; flex-direction:column; gap:10px; }
+    .dash-blocker { background:var(--bg); border:1px solid rgba(239,68,68,.2); border-radius:8px; padding:10px 14px; }
+    .dash-blocker-header { display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
+    .dash-blocker-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
+    .dash-blocker-key:hover { text-decoration:underline; }
+    .dash-blocker-title { font-size:12px; color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-blocker-reason { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:2px 7px; border-radius:999px; flex-shrink:0; }
+    .dash-blocker-reason.no-link   { background:rgba(234,179,8,.12); color:var(--yellow); }
+    .dash-blocker-reason.failed    { background:rgba(239,68,68,.12); color:var(--red); }
+    .dash-blocker-reason.not-run   { background:rgba(100,116,139,.1); color:var(--muted); }
+    .dash-blocker-flows { list-style:none; margin-top:6px; display:flex; flex-direction:column; gap:3px; }
+    .dash-blocker-flow { display:flex; align-items:center; gap:6px; font-size:11px; padding-left:6px; }
+    .dash-blocker-flow-name { color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-blocker-flow-suite { font-size:10px; color:var(--muted); opacity:.6; flex-shrink:0; }
+    .dash-blocker-flow-link { font-size:10px; color:var(--indigo); text-decoration:none; flex-shrink:0; opacity:.7; }
+    .dash-blocker-flow-link:hover { opacity:1; text-decoration:underline; }
+    .dash-refresh { display:flex; align-items:center; gap:10px; }
+    .dash-refresh-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:11px; padding:5px 12px; cursor:pointer; transition:border-color .15s,color .15s; }
+    .dash-refresh-btn:hover { border-color:var(--indigo); color:var(--indigo); }
+    .dash-refresh-ts { font-size:11px; color:var(--muted); }
+    @media (max-width:640px) { .dash-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -297,6 +331,7 @@
 <div class="tab-bar">
   <div class="tab active" data-tab="log">Activity Log</div>
   <div class="tab" data-tab="runner">Test Runner</div>
+  <div class="tab" data-tab="dashboard">Dashboard</div>
 </div>
 
 <div class="stats">
@@ -381,6 +416,36 @@
   </div>
 </div>
 
+<!-- Dashboard -->
+<div class="panel" id="panel-dashboard">
+  <div class="dash-refresh">
+    <button class="dash-refresh-btn" id="dash-refresh-btn">↺ Refresh</button>
+    <span class="dash-refresh-ts" id="dash-refresh-ts"></span>
+  </div>
+  <div class="dash-grid">
+    <!-- Staging card -->
+    <div class="dash-card" id="dash-card-stg">
+      <div class="dash-card-label">Ready for Stg?</div>
+      <div class="dash-verdict">
+        <div class="dash-verdict-badge" id="dash-stg-badge">—</div>
+        <div class="dash-verdict-sub" id="dash-stg-sub">Loading…</div>
+      </div>
+      <div class="dash-checked" id="dash-stg-checked"></div>
+      <div id="dash-stg-blockers"></div>
+    </div>
+    <!-- Production card -->
+    <div class="dash-card" id="dash-card-prod">
+      <div class="dash-card-label">Ready for Prod?</div>
+      <div class="dash-verdict">
+        <div class="dash-verdict-badge" id="dash-prod-badge">—</div>
+        <div class="dash-verdict-sub" id="dash-prod-sub">Loading…</div>
+      </div>
+      <div class="dash-checked" id="dash-prod-checked"></div>
+      <div id="dash-prod-blockers"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Re-run env picker dialog (shared across all ticket cards) -->
 <dialog id="rerun-dialog">
   <p class="rerun-dialog-title">Re-run flows for <span class="rerun-dialog-key" id="rerun-dialog-key"></span></p>
@@ -437,7 +502,8 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
-    if (tab.dataset.tab==='runner' && !suitesLoaded) loadSuites();
+    if (tab.dataset.tab==='runner'    && !suitesLoaded) loadSuites();
+    if (tab.dataset.tab==='dashboard') loadDashboard();
   });
 });
 
@@ -1820,6 +1886,141 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
   await fetch('/api/refresh-flows', { method: 'POST' });
   loadSuites();
 });
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, data }) {
+  const card      = document.getElementById(cardId);
+  const badge     = document.getElementById(badgeId);
+  const sub       = document.getElementById(subId);
+  const checked   = document.getElementById(checkedId);
+  const blockersEl = document.getElementById(blockersId);
+
+  badge.className = 'dash-verdict-badge ' + (data.ready ? 'yes' : 'no');
+  badge.textContent = data.ready ? '✓ YES' : '✗ NO';
+
+  if (data.ready) {
+    sub.textContent = 'All active sprint tickets are good to go.';
+    card.style.borderColor = 'rgba(34,197,94,.35)';
+  } else {
+    sub.textContent = `${data.blockers.length} blocker${data.blockers.length !== 1 ? 's' : ''} need${data.blockers.length === 1 ? 's' : ''} attention.`;
+    card.style.borderColor = 'rgba(239,68,68,.35)';
+  }
+
+  checked.textContent = data.checkedTickets === 0
+    ? 'No active sprint tickets found.'
+    : `Checking ${data.checkedTickets} active sprint ticket${data.checkedTickets !== 1 ? 's' : ''}.`;
+
+  blockersEl.innerHTML = '';
+  if (!data.blockers.length) return;
+
+  const hr = document.createElement('hr');
+  hr.className = 'dash-divider';
+  blockersEl.appendChild(hr);
+
+  const list = document.createElement('div');
+  list.className = 'dash-blockers';
+
+  for (const b of data.blockers) {
+    const item = document.createElement('div');
+    item.className = 'dash-blocker';
+
+    const header = document.createElement('div');
+    header.className = 'dash-blocker-header';
+
+    const keyEl = document.createElement('a');
+    keyEl.className = 'dash-blocker-key';
+    keyEl.href = b.jiraUrl;
+    keyEl.target = '_blank';
+    keyEl.textContent = b.ticketKey;
+    header.appendChild(keyEl);
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'dash-blocker-title';
+    titleEl.title = b.ticketTitle;
+    titleEl.textContent = b.ticketTitle;
+    header.appendChild(titleEl);
+
+    const reasonEl = document.createElement('span');
+    reasonEl.className = 'dash-blocker-reason ' + (
+      b.type === 'no_link'      ? 'no-link' :
+      b.type === 'test_failed'  ? 'failed'  : 'not-run'
+    );
+    reasonEl.textContent = (
+      b.type === 'no_link'      ? 'Unlinked' :
+      b.type === 'test_failed'  ? 'Tests failing' : 'Not tested'
+    );
+    header.appendChild(reasonEl);
+    item.appendChild(header);
+
+    if (b.failedFlows && b.failedFlows.length) {
+      const flowList = document.createElement('ul');
+      flowList.className = 'dash-blocker-flows';
+      for (const f of b.failedFlows) {
+        const li = document.createElement('li');
+        li.className = 'dash-blocker-flow';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'dash-blocker-flow-name';
+        nameEl.title = f.name + (f.summary ? ` — ${f.summary}` : '');
+        nameEl.textContent = '✗ ' + f.name;
+        li.appendChild(nameEl);
+        if (f.suiteName) {
+          const suiteEl = document.createElement('span');
+          suiteEl.className = 'dash-blocker-flow-suite';
+          suiteEl.textContent = f.suiteName;
+          li.appendChild(suiteEl);
+        }
+        if (f.runUrl) {
+          const link = document.createElement('a');
+          link.className = 'dash-blocker-flow-link';
+          link.href = f.runUrl;
+          link.target = '_blank';
+          link.textContent = '↗ View';
+          li.appendChild(link);
+        }
+        flowList.appendChild(li);
+      }
+      item.appendChild(flowList);
+    }
+
+    list.appendChild(item);
+  }
+
+  blockersEl.appendChild(list);
+}
+
+async function loadDashboard() {
+  // Reset cards to loading state
+  for (const id of ['dash-stg-badge','dash-prod-badge']) {
+    const el = document.getElementById(id);
+    el.className = 'dash-verdict-badge';
+    el.textContent = '—';
+  }
+  for (const id of ['dash-stg-sub','dash-prod-sub']) {
+    document.getElementById(id).textContent = 'Loading…';
+  }
+  for (const id of ['dash-stg-checked','dash-prod-checked']) {
+    document.getElementById(id).textContent = '';
+  }
+  for (const id of ['dash-stg-blockers','dash-prod-blockers']) {
+    document.getElementById(id).innerHTML = '';
+  }
+  document.getElementById('dash-card-stg').style.borderColor = '';
+  document.getElementById('dash-card-prod').style.borderColor = '';
+
+  try {
+    const data = await fetch('/api/dashboard').then(r => r.json());
+    renderDashCard({ cardId:'dash-card-stg',  badgeId:'dash-stg-badge',  subId:'dash-stg-sub',  checkedId:'dash-stg-checked',  blockersId:'dash-stg-blockers',  data: data.staging });
+    renderDashCard({ cardId:'dash-card-prod', badgeId:'dash-prod-badge', subId:'dash-prod-sub', checkedId:'dash-prod-checked', blockersId:'dash-prod-blockers', data: data.production });
+    document.getElementById('dash-refresh-ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    for (const id of ['dash-stg-sub','dash-prod-sub']) {
+      document.getElementById(id).textContent = 'Failed to load — check console';
+    }
+  }
+}
+
+document.getElementById('dash-refresh-btn').addEventListener('click', loadDashboard);
 </script>
 </body>
 </html>
