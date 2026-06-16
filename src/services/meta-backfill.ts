@@ -11,8 +11,36 @@ import * as ticketStore from './ticket-store';
 import * as jiraClient  from './jira';
 import { extractSprintName, isSprintActive, extractEpicRef } from './jira-fields';
 import * as logger from '../logger';
+import { config } from '../config';
 
 export async function backfillTicketMeta(): Promise<void> {
+  // ── Pass 0: refresh sprint data for all tickets in open sprints ──────────────
+  // Tickets moved between sprints via bulk operations or sprint start/close don't
+  // always fire individual webhooks, so stored sprint names can go stale.
+  // One JQL call covers all of them efficiently.
+  try {
+    const openSprintIssues = await jiraClient.searchIssues(
+      `project = ${config.jiraProject} AND sprint in openSprints() ORDER BY updated DESC`,
+      ['summary', 'status', 'customfield_10020'],
+      500,
+    );
+    let refreshed = 0;
+    for (const issue of openSprintIssues) {
+      const sprint         = extractSprintName(issue.fields);
+      const sprintIsActive = isSprintActive(issue.fields);
+      if (sprint && ticketStore.getTicket(issue.key)) {
+        ticketStore.updateTicketMeta(issue.key, { sprint, sprintIsActive });
+        refreshed++;
+      }
+    }
+    if (refreshed > 0) {
+      logger.info(`Sprint refresh: updated ${refreshed} stored ticket(s) to current active sprint`);
+    }
+  } catch (err) {
+    // Non-fatal — stale sprint data is cosmetic, don't block the rest of backfill
+    logger.warn('Sprint refresh (pass 0) failed — using stored data', { error: String(err) });
+  }
+
   // ── Pass 1: fetch Jira for tickets missing sprint/epic/status ────────────────
   // Catches tickets created before these fields were persisted, or tickets
   // whose status was never set (no status-change webhook received yet).
