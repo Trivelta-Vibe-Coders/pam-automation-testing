@@ -7,6 +7,33 @@ import { AutosanaFlow, FlowMatch, AdfDocument, AdfNode } from '../types';
 
 const anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
 
+// ── JSON extraction helper ────────────────────────────────────────────────────
+
+/**
+ * Robustly extract a JSON string from a Claude response that may be wrapped
+ * in markdown code fences (```json ... ```) and/or have trailing commentary.
+ *
+ * Strategy:
+ *  1. Strip the opening fence line (handles \r\n, extra spaces, uppercase JSON)
+ *  2. Strip the closing fence and anything that follows it
+ *  3. As a last resort, seek the first { or [ in case there is still leading text
+ */
+function extractJson(raw: string): string {
+  let text = raw
+    .replace(/^```(?:json|JSON)?[\r\n]+/, '')  // strip opening fence
+    .replace(/[\r\n]```[\s\S]*$/, '');          // strip closing fence + any trailing content
+
+  // If there's still non-JSON preamble, jump to the first object/array
+  const objIdx = text.indexOf('{');
+  const arrIdx = text.indexOf('[');
+  const start  = objIdx === -1 ? arrIdx
+               : arrIdx === -1 ? objIdx
+               : Math.min(objIdx, arrIdx);
+  if (start > 0) text = text.slice(start);
+
+  return text.trim();
+}
+
 // ── ADF → plain text ──────────────────────────────────────────────────────────
 
 function adfNodeToText(node: AdfNode): string {
@@ -115,8 +142,7 @@ or
 
   const raw = (msg.content[0] as { type: string; text: string }).text.trim();
   try {
-    const json = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-    const parsed = JSON.parse(json) as { needed: boolean; reason: string };
+    const parsed = JSON.parse(extractJson(raw)) as { needed: boolean; reason: string };
     return { needed: !!parsed.needed, reason: parsed.reason ?? '' };
   } catch {
     // If Claude's response can't be parsed, default to creating the test
@@ -173,9 +199,7 @@ Include only flows with score > 0. If no flows are relevant, return {"matches":[
 
   let parsed: { matches: Array<{ flow_id: string; score: number; reason: string }> };
   try {
-    // Strip markdown code fences if present
-    const json = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-    parsed = JSON.parse(json);
+    parsed = JSON.parse(extractJson(raw));
   } catch {
     throw new Error(`Claude returned invalid JSON for flow matching: ${raw.slice(0, 200)}`);
   }
