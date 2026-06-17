@@ -334,6 +334,28 @@
     .dash-passing-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-passing-key:hover { text-decoration:underline; }
     .dash-passing-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Dismiss button */
+    .dash-blocker-dismiss { margin-top:6px; background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; font-weight:600; padding:3px 9px; cursor:pointer; transition:border-color .15s,color .15s; letter-spacing:.3px; }
+    .dash-blocker-dismiss:hover { border-color:var(--yellow); color:var(--yellow); }
+    /* Dismissed section */
+    .dash-dismissed { }
+    .dash-dismissed-header { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+    .dash-dismissed-header:hover { opacity:.8; }
+    .dash-dismissed-icon { font-size:11px; color:var(--muted); }
+    .dash-dismissed-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); flex:1; }
+    .dash-dismissed-count { background:var(--border); color:var(--muted); border-radius:999px; padding:1px 7px; font-size:10px; }
+    .dash-dismissed-chevron { font-size:10px; color:var(--muted); transition:transform .15s; }
+    .dash-dismissed.collapsed .dash-dismissed-chevron { transform:rotate(-90deg); }
+    .dash-dismissed.collapsed .dash-dismissed-list { display:none; }
+    .dash-dismissed-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+    .dash-dismissed-item { background:var(--bg); border:1px solid rgba(100,116,139,.2); border-radius:8px; padding:8px 12px; opacity:.75; }
+    .dash-dismissed-item-header { display:flex; align-items:center; gap:8px; }
+    .dash-dismissed-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
+    .dash-dismissed-key:hover { text-decoration:underline; }
+    .dash-dismissed-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-dismissed-badge { font-size:10px; background:var(--border); color:var(--muted); padding:1px 7px; border-radius:999px; flex-shrink:0; }
+    .dash-dismissed-restore { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; padding:2px 8px; cursor:pointer; transition:border-color .15s,color .15s; flex-shrink:0; }
+    .dash-dismissed-restore:hover { border-color:var(--red); color:var(--red); }
     /* Manual testing section */
     .dash-manual { }
     .dash-manual-header { display:flex; align-items:center; gap:8px; }
@@ -468,6 +490,7 @@
       </div>
       <div class="dash-checked" id="dash-stg-checked"></div>
       <div id="dash-stg-blockers"></div>
+      <div id="dash-stg-dismissed"></div>
       <div id="dash-stg-passing"></div>
       <div id="dash-stg-manual"></div>
     </div>
@@ -480,6 +503,7 @@
       </div>
       <div class="dash-checked" id="dash-prod-checked"></div>
       <div id="dash-prod-blockers"></div>
+      <div id="dash-prod-dismissed"></div>
       <div id="dash-prod-passing"></div>
       <div id="dash-prod-manual"></div>
     </div>
@@ -1948,12 +1972,13 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, passingId, manualId, data }) {
+function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismissedId, passingId, manualId, card: cardKey, data }) {
   const card       = document.getElementById(cardId);
   const badge      = document.getElementById(badgeId);
   const sub        = document.getElementById(subId);
   const checked    = document.getElementById(checkedId);
   const blockersEl = document.getElementById(blockersId);
+  const dismissedEl = document.getElementById(dismissedId);
   const passingEl  = document.getElementById(passingId);
   const manualEl   = document.getElementById(manualId);
 
@@ -2090,10 +2115,114 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, passing
         item.appendChild(body);
       }
 
+      // "Not a blocker" button — only on test_failed blockers
+      if (b.type === 'test_failed') {
+        const dismissBtn = document.createElement('button');
+        dismissBtn.className = 'dash-blocker-dismiss';
+        dismissBtn.textContent = 'Not a blocker';
+        dismissBtn.addEventListener('click', async () => {
+          dismissBtn.disabled = true;
+          dismissBtn.textContent = 'Saving…';
+          await fetch('/api/dashboard/dismiss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: true }),
+          });
+          loadDashboard();
+        });
+        item.appendChild(dismissBtn);
+      }
+
       list.appendChild(item);
     }
 
     blockersEl.appendChild(list);
+  }
+
+  // ── Dismissed blockers section ──────────────────────────────────────────
+  dismissedEl.innerHTML = '';
+  if (data.dismissedBlockers && data.dismissedBlockers.length) {
+    const hr = document.createElement('hr');
+    hr.className = 'dash-divider';
+    dismissedEl.appendChild(hr);
+
+    const section = document.createElement('div');
+    section.className = 'dash-dismissed collapsed'; // starts collapsed
+
+    const dHeader = document.createElement('div');
+    dHeader.className = 'dash-dismissed-header';
+    dHeader.addEventListener('click', () => section.classList.toggle('collapsed'));
+
+    const dIcon = document.createElement('span');
+    dIcon.className = 'dash-dismissed-icon';
+    dIcon.textContent = '—';
+    dHeader.appendChild(dIcon);
+
+    const dLabel = document.createElement('span');
+    dLabel.className = 'dash-dismissed-label';
+    dLabel.textContent = 'Not a blocker';
+    dHeader.appendChild(dLabel);
+
+    const dCnt = document.createElement('span');
+    dCnt.className = 'dash-dismissed-count';
+    dCnt.textContent = String(data.dismissedBlockers.length);
+    dHeader.appendChild(dCnt);
+
+    const dChevron = document.createElement('span');
+    dChevron.className = 'dash-dismissed-chevron';
+    dChevron.textContent = '▾';
+    dHeader.appendChild(dChevron);
+
+    section.appendChild(dHeader);
+
+    const dList = document.createElement('ul');
+    dList.className = 'dash-dismissed-list';
+
+    for (const b of data.dismissedBlockers) {
+      const li = document.createElement('li');
+      li.className = 'dash-dismissed-item';
+
+      const itemHeader = document.createElement('div');
+      itemHeader.className = 'dash-dismissed-item-header';
+
+      const keyLink = document.createElement('a');
+      keyLink.className = 'dash-dismissed-key';
+      keyLink.href = b.jiraUrl;
+      keyLink.target = '_blank';
+      keyLink.textContent = b.ticketKey;
+      itemHeader.appendChild(keyLink);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'dash-dismissed-title';
+      titleSpan.title = b.ticketTitle;
+      titleSpan.textContent = b.ticketTitle;
+      itemHeader.appendChild(titleSpan);
+
+      const badge = document.createElement('span');
+      badge.className = 'dash-dismissed-badge';
+      badge.textContent = 'Tests failing';
+      itemHeader.appendChild(badge);
+
+      const restoreBtn = document.createElement('button');
+      restoreBtn.className = 'dash-dismissed-restore';
+      restoreBtn.textContent = 'Mark as blocker';
+      restoreBtn.addEventListener('click', async () => {
+        restoreBtn.disabled = true;
+        await fetch('/api/dashboard/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: false }),
+        });
+        loadDashboard();
+      });
+      itemHeader.appendChild(restoreBtn);
+
+      li.appendChild(itemHeader);
+      dList.appendChild(li);
+    }
+
+    section.appendChild(dList);
+    dismissedEl.appendChild(section);
   }
 
   // ── Passing tickets section ─────────────────────────────────────────────
@@ -2217,7 +2346,7 @@ async function loadDashboard() {
   for (const id of ['dash-stg-checked','dash-prod-checked']) {
     document.getElementById(id).textContent = '';
   }
-  for (const id of ['dash-stg-blockers','dash-prod-blockers','dash-stg-passing','dash-prod-passing','dash-stg-manual','dash-prod-manual']) {
+  for (const id of ['dash-stg-blockers','dash-prod-blockers','dash-stg-dismissed','dash-prod-dismissed','dash-stg-passing','dash-prod-passing','dash-stg-manual','dash-prod-manual']) {
     document.getElementById(id).innerHTML = '';
   }
   document.getElementById('dash-card-stg').style.borderColor = '';
@@ -2225,8 +2354,8 @@ async function loadDashboard() {
 
   try {
     const data = await fetch('/api/dashboard').then(r => r.json());
-    renderDashCard({ cardId:'dash-card-stg',  badgeId:'dash-stg-badge',  subId:'dash-stg-sub',  checkedId:'dash-stg-checked',  blockersId:'dash-stg-blockers',  passingId:'dash-stg-passing',  manualId:'dash-stg-manual',  data: data.staging });
-    renderDashCard({ cardId:'dash-card-prod', badgeId:'dash-prod-badge', subId:'dash-prod-sub', checkedId:'dash-prod-checked', blockersId:'dash-prod-blockers', passingId:'dash-prod-passing', manualId:'dash-prod-manual', data: data.production });
+    renderDashCard({ cardId:'dash-card-stg',  badgeId:'dash-stg-badge',  subId:'dash-stg-sub',  checkedId:'dash-stg-checked',  blockersId:'dash-stg-blockers',  dismissedId:'dash-stg-dismissed',  passingId:'dash-stg-passing',  manualId:'dash-stg-manual',  card:'stg',  data: data.staging });
+    renderDashCard({ cardId:'dash-card-prod', badgeId:'dash-prod-badge', subId:'dash-prod-sub', checkedId:'dash-prod-checked', blockersId:'dash-prod-blockers', dismissedId:'dash-prod-dismissed', passingId:'dash-prod-passing', manualId:'dash-prod-manual', card:'prod', data: data.production });
     document.getElementById('dash-refresh-ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch (err) {
     for (const id of ['dash-stg-sub','dash-prod-sub']) {

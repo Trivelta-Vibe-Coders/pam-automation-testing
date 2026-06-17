@@ -24,6 +24,7 @@ import { getFlow } from './services/autosana';
 import * as envRestrictions from './services/env-restrictions';
 import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
+import * as dismissedBlockers_ from './services/dismissed-blockers';
 import { startPolling } from './services/batch-poller';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
@@ -329,7 +330,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     };
   }
 
-  // ── Blocker + manual-ticket shapes ───────────────────────────────────────
+  // ── Shapes ────────────────────────────────────────────────────────────────
   interface Blocker {
     type:         'no_link' | 'test_failed' | 'never_tested';
     ticketKey:    string;
@@ -348,10 +349,12 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
   function buildCardData(
     tickets: ticketStore.TicketRecord[],
     env: string | null,
-  ): { blockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[] } {
-    const blockers:          Blocker[]       = [];
-    const passingTickets:    SimpleTicket[]  = [];
-    const manualTestTickets: SimpleTicket[]  = [];
+    card: 'stg' | 'prod',
+  ): { blockers: Blocker[]; dismissedBlockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[] } {
+    const blockers:          Blocker[]      = [];
+    const dismissedBlockers: Blocker[]      = [];
+    const passingTickets:    SimpleTicket[] = [];
+    const manualTestTickets: SimpleTicket[] = [];
 
     for (const ticket of tickets) {
       const jiraUrl = `${config.jiraBaseUrl}/browse/${ticket.key}`;
@@ -364,6 +367,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       }
 
       if (!linkedKeys.has(ticket.key)) {
+        // Unlinked tickets can't be dismissed (they genuinely have no test)
         blockers.push({ type: 'no_link', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
         continue;
       }
@@ -372,26 +376,33 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       if (!result) {
         blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
       } else if (!result.passed) {
-        blockers.push({
+        const blocker: Blocker = {
           type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl,
           testSummary: result.testSummary || undefined,
           failedFlows: result.failedFlows,
-        });
+        };
+        // Route to dismissed list if the team has marked it as not a blocker
+        if (dismissedBlockers_.isDismissed(ticket.key, card)) {
+          dismissedBlockers.push(blocker);
+        } else {
+          blockers.push(blocker);
+        }
       } else {
         passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
       }
     }
-    return { blockers, passingTickets, manualTestTickets };
+    return { blockers, dismissedBlockers, passingTickets, manualTestTickets };
   }
 
-  const stagingData = buildCardData(devTickets, null);
-  const prodData    = buildCardData(stgTickets, 'staging');
+  const stagingData = buildCardData(devTickets, null,      'stg');
+  const prodData    = buildCardData(stgTickets, 'staging', 'prod');
 
   res.json({
     staging: {
       ready:             stagingData.blockers.length === 0,
       checkedTickets:    devTickets.length,
       blockers:          stagingData.blockers,
+      dismissedBlockers: stagingData.dismissedBlockers,
       passingTickets:    stagingData.passingTickets,
       manualTestTickets: stagingData.manualTestTickets,
     },
@@ -399,10 +410,26 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       ready:             prodData.blockers.length === 0,
       checkedTickets:    stgTickets.length,
       blockers:          prodData.blockers,
+      dismissedBlockers: prodData.dismissedBlockers,
       passingTickets:    prodData.passingTickets,
       manualTestTickets: prodData.manualTestTickets,
     },
   });
+});
+
+// ── API: dismiss / un-dismiss a dashboard blocker ─────────────────────────────
+app.post('/api/dashboard/dismiss', (req: Request, res: Response) => {
+  const { ticketKey, card, dismissed } = req.body ?? {};
+  if (!ticketKey || !card || typeof dismissed !== 'boolean') {
+    res.status(400).json({ error: 'ticketKey, card (stg|prod), and dismissed (boolean) are required' });
+    return;
+  }
+  if (card !== 'stg' && card !== 'prod') {
+    res.status(400).json({ error: 'card must be "stg" or "prod"' });
+    return;
+  }
+  dismissedBlockers_.setDismissed(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', dismissed);
+  res.json({ ok: true, ticketKey, card, dismissed });
 });
 
 // ── Webhook routes ────────────────────────────────────────────────────────────
