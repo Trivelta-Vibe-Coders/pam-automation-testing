@@ -62,11 +62,16 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
   // Only process PAMENG tickets (guard against cross-project webhooks)
   if (!key.startsWith(config.jiraProject)) {
-    logger.info(`Ignoring webhook for non-PAMENG issue: ${key}`);
+    console.log(`[webhook] Ignoring non-PAMENG issue: ${key}`);
     return;
   }
 
-  logger.info(`Webhook received: ${event} for ${key}`);
+  // Log to Railway deploy logs only — not to the activity log UI or per-ticket
+  // history. Every Jira field edit fires this webhook, so it would otherwise
+  // flood the ticket timeline with identical "Webhook received" lines that
+  // contain no actionable information. Meaningful events (status changes,
+  // test triggers, results) are logged by the handlers below.
+  console.log(`[webhook] ${event} for ${key}`);
 
   try {
     if (event === 'jira:issue_created') {
@@ -74,7 +79,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
     } else if (event === 'jira:issue_updated') {
       await handleTicketUpdated(payload);
     } else {
-      logger.info(`Ignoring unhandled event type: ${event}`);
+      console.log(`[webhook] Ignoring unhandled event type: ${event} for ${key}`);
     }
   } catch (err) {
     logger.error(`Unhandled error processing ${event} for ${key}`, {

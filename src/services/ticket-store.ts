@@ -41,10 +41,17 @@ function levelPriority(l: ActivityLevel): number {
 
 // ── Event deduplication ───────────────────────────────────────────────────────
 
+// Matches low-signal webhook receipt log lines that we no longer want to
+// store in per-ticket history (they accumulate for every Jira field edit).
+const WEBHOOK_NOISE_RE = /^Webhook received: jira:\S+ for PAMENG-\d+$/;
+
 /**
- * Remove duplicate events from a ticket's history.
+ * Remove duplicate events and legacy webhook-receipt noise from a ticket's
+ * history.
  *
  * Dedup key strategy:
+ *  - Strip "Webhook received: jira:XXX for PAMENG-NNN" lines entirely —
+ *    they fired for every Jira edit and carry no actionable info.
  *  - If the event has a batchId in details → key = message + batchId
  *    (same message from a different batch is a real separate event)
  *  - Otherwise → key = message + minute-bucket (YYYY-MM-DDTHH:MM)
@@ -54,6 +61,9 @@ function deduplicateEvents(events: ActivityEvent[]): ActivityEvent[] {
   const seen = new Set<string>();
   const result: ActivityEvent[] = [];
   for (const e of events) {
+    // Drop legacy webhook-noise entries
+    if (WEBHOOK_NOISE_RE.test(e.message)) continue;
+
     const batchId = String((e.details as Record<string, unknown>)?.batchId ?? '');
     const minute  = e.timestamp.slice(0, 16);  // "2024-01-15T10:30"
     const dedupKey = batchId
@@ -134,6 +144,11 @@ export function addEvent(key: string, event: ActivityEvent): void {
   }
 
   const rec = store.get(key)!;
+
+  // ── Noise filter ─────────────────────────────────────────────────────────────
+  // Webhook-receipt lines fire for every Jira field edit and add no useful info
+  // to the ticket timeline. Drop them — meaningful events are logged separately.
+  if (WEBHOOK_NOISE_RE.test(event.message)) return;
 
   // ── Dedup guard ──────────────────────────────────────────────────────────────
   // Skip if an identical event was already recorded within the last 2 minutes.
