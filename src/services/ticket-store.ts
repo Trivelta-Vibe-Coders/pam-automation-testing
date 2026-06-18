@@ -39,14 +39,50 @@ function levelPriority(l: ActivityLevel): number {
   return ({ error: 3, warning: 2, success: 1, info: 0 } as Record<string, number>)[l] ?? 0;
 }
 
+// ── Event deduplication ───────────────────────────────────────────────────────
+
+/**
+ * Remove duplicate events from a ticket's history.
+ *
+ * Dedup key strategy:
+ *  - If the event has a batchId in details → key = message + batchId
+ *    (same message from a different batch is a real separate event)
+ *  - Otherwise → key = message + minute-bucket (YYYY-MM-DDTHH:MM)
+ *    (same message within the same minute is almost certainly a webhook retry)
+ */
+function deduplicateEvents(events: ActivityEvent[]): ActivityEvent[] {
+  const seen = new Set<string>();
+  const result: ActivityEvent[] = [];
+  for (const e of events) {
+    const batchId = String((e.details as Record<string, unknown>)?.batchId ?? '');
+    const minute  = e.timestamp.slice(0, 16);  // "2024-01-15T10:30"
+    const dedupKey = batchId
+      ? `${e.message}||batch:${batchId}`
+      : `${e.message}||min:${minute}`;
+    if (!seen.has(dedupKey)) {
+      seen.add(dedupKey);
+      result.push(e);
+    }
+  }
+  return result;
+}
+
 // ── Persistence ───────────────────────────────────────────────────────────────
 
 function loadFromDisk(): void {
   try {
     if (!fs.existsSync(STORE_PATH)) return;
     const raw: TicketRecord[] = JSON.parse(fs.readFileSync(STORE_PATH, 'utf-8'));
-    for (const rec of raw) store.set(rec.key, rec);
-    console.log(`[ticket-store] Loaded ${store.size} ticket(s) from ${STORE_PATH}`);
+    let dedupCount = 0;
+    for (const rec of raw) {
+      const before = rec.events.length;
+      rec.events = deduplicateEvents(rec.events);
+      dedupCount += before - rec.events.length;
+      store.set(rec.key, rec);
+    }
+    const dedupNote = dedupCount > 0 ? ` — removed ${dedupCount} duplicate event(s)` : '';
+    console.log(`[ticket-store] Loaded ${store.size} ticket(s) from ${STORE_PATH}${dedupNote}`);
+    if (dedupCount > 0) saveToDisk(); // write the deduplicated data back immediately
   } catch (err) {
     console.warn('[ticket-store] Could not load:', err);
   }
@@ -98,6 +134,22 @@ export function addEvent(key: string, event: ActivityEvent): void {
   }
 
   const rec = store.get(key)!;
+
+  // ── Dedup guard ──────────────────────────────────────────────────────────────
+  // Skip if an identical event was already recorded within the last 2 minutes.
+  // Uses the same key strategy as deduplicateEvents().
+  const batchId  = String(event.details?.batchId ?? '');
+  const minute   = event.timestamp.slice(0, 16);
+  const dedupKey = batchId
+    ? `${event.message}||batch:${batchId}`
+    : `${event.message}||min:${minute}`;
+  const alreadySeen = rec.events.some(e => {
+    const eb = String(e.details?.batchId ?? '');
+    const em = e.timestamp.slice(0, 16);
+    const ek = eb ? `${e.message}||batch:${eb}` : `${e.message}||min:${em}`;
+    return ek === dedupKey;
+  });
+  if (alreadySeen) return;
 
   // Extract ticket title from the creation message
   if (!rec.title) {

@@ -20,6 +20,28 @@ import { startPolling } from '../services/batch-poller';
 import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
 
+// ── Webhook duplicate guard ────────────────────────────────────────────────────
+// Jira frequently re-delivers the same webhook multiple times. This cache
+// tracks recent status transitions (key:status → expiry timestamp) so we can
+// skip duplicate trigger runs within a 2-minute window.
+const DEDUP_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const recentTransitions = new Map<string, number>();
+
+function checkAndMarkTransition(key: string, status: string): boolean {
+  const cacheKey = `${key}:${status}`;
+  const expiry = recentTransitions.get(cacheKey);
+  const now = Date.now();
+  if (expiry !== undefined && now < expiry) return false; // duplicate — skip
+  recentTransitions.set(cacheKey, now + DEDUP_TTL_MS);
+  // Prune stale entries to avoid unbounded growth
+  if (recentTransitions.size > 500) {
+    for (const [k, exp] of recentTransitions) {
+      if (now > exp) recentTransitions.delete(k);
+    }
+  }
+  return true; // first occurrence within window — proceed
+}
+
 // Map Jira status names → Autosana environments
 function statusToEnvironment(statusName: string): TriggerEnvironment | null {
   if (statusName === config.jiraStatusDev)          return 'dev';
@@ -57,6 +79,14 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
     jiraClient.getIssue(epicRef)
       .then(epicIssue => ticketStore.updateTicketMeta(key, { epicStatus: epicIssue.fields.status.name }))
       .catch(() => { /* non-fatal */ });
+  }
+
+  // ── Dedup guard ──────────────────────────────────────────────────────────────
+  // Skip the trigger logic if this is a repeat delivery of the same transition.
+  // Metadata updates above are idempotent so we let them run even for duplicates.
+  if (!checkAndMarkTransition(key, newStatus)) {
+    logger.info(`Skipping duplicate webhook for ${key} → "${newStatus}"`, { key });
+    return;
   }
 
   const env    = statusToEnvironment(newStatus);
