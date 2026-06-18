@@ -18,12 +18,13 @@ export interface FlowRunResult {
 }
 
 export async function dispatchSuiteCompleted(params: {
-  suiteId:     string;
-  suiteName:   string;
-  runDate:     string;
-  flows:       FlowRunResult[];
-  environment: string;
-  triggeredBy?: string;   // "nightly" | jira key | "manual"
+  suiteId:      string;
+  suiteName:    string;
+  runDate:      string;
+  flows:        FlowRunResult[];
+  environment:  string;
+  triggeredBy?: string;    // "nightly" | jira key | "manual"
+  testSummary?: string;    // AI-generated overall summary for the Slack report
 }): Promise<void> {
   if (!config.githubToken) {
     throw new Error('GITHUB_DISPATCH_TOKEN not set — cannot dispatch to GitHub Actions');
@@ -39,6 +40,7 @@ export async function dispatchSuiteCompleted(params: {
       flows:        params.flows,
       environment:  params.environment,
       triggered_by: params.triggeredBy ?? 'manual',
+      test_summary: params.testSummary ?? '',
     },
   };
 

@@ -61,8 +61,9 @@ def load_payload():
     flows        = payload.get("flows", [])
     environment  = payload.get("environment", "staging")
     triggered_by = payload.get("triggered_by", "manual")
+    test_summary = payload.get("test_summary", "")
     print(f"[1] Loaded {len(flows)} flows for {suite_name} ({run_date}) [{environment}] triggered_by={triggered_by}")
-    return suite_id, suite_name, run_date, flows, environment, triggered_by
+    return suite_id, suite_name, run_date, flows, environment, triggered_by, test_summary
 
 
 # ── Step 4: Classify with Claude ──────────────────────────────────────────────
@@ -557,7 +558,7 @@ def update_sheet(suite_id, run_date, classifications):
 
 
 # ── Step 8: Slack notification ────────────────────────────────────────────────
-def send_slack(suite_name, run_date, confluence_url, classifications, environment="staging", flows=None):
+def send_slack(suite_name, run_date, confluence_url, classifications, environment="staging", flows=None, test_summary=""):
     if not SLACK_WEBHOOK:
         print("[8] Skipping Slack — SLACK_WEBHOOK_URL not set")
         return
@@ -590,6 +591,10 @@ def send_slack(suite_name, run_date, confluence_url, classifications, environmen
             {"type": "mrkdwn", "text": f":warning: *Agent / Env / Not Run*\n{agent_na} — {pct(agent_na)}"},
         ]},
     ]
+
+    # AI-generated overall summary (covers all outcomes, not just failures)
+    if test_summary:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"_{test_summary}_"}})
 
     failures = [c for c in classifications if c["classification"] == "Legitimate Failure"]
     if failures:
@@ -643,6 +648,17 @@ def send_slack(suite_name, run_date, confluence_url, classifications, environmen
                     },
                 })
 
+    # Agent errors — show summaries so the team can see what the agent struggled with,
+    # even though these don't warrant a "Create Bug" button (not product defects)
+    agent_errors = [c for c in classifications if c["classification"] == "Agent Error"]
+    if agent_errors:
+        blocks.append({"type": "divider"})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn",
+            "text": ":warning: *Agent Errors* _(test-runner issues, not product defects)_"}})
+        for f in agent_errors:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                "text": f"• *{f['flow_name']}* — {f.get('summary', 'No summary available')}"}})
+
     if confluence_url:
         blocks.append({"type": "divider"})
         blocks.append({"type": "actions", "elements": [
@@ -662,7 +678,7 @@ def send_slack(suite_name, run_date, confluence_url, classifications, environmen
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n{'='*60}\nPAM Report Pipeline (v4 — payload from teardown hook)\n{'='*60}\n")
-    suite_id, suite_name, run_date, flows, environment, triggered_by = load_payload()
+    suite_id, suite_name, run_date, flows, environment, triggered_by, test_summary = load_payload()
     classifications = classify_flows(suite_name, flows)
 
     # Generate outputs
@@ -683,7 +699,7 @@ def main():
         print(f"[5] Sheet error: {e}")
 
     try:
-        send_slack(suite_name, run_date, confluence_url, classifications, environment, flows)
+        send_slack(suite_name, run_date, confluence_url, classifications, environment, flows, test_summary)
     except Exception as e:
         print(f"[6] Slack error: {e}")
 

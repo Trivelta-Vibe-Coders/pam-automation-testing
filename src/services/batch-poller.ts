@@ -90,10 +90,42 @@ export function startPolling(params: {
 
       if (!status.is_complete) continue;
 
-      // ── Batch finished — dispatch per suite ─────────────────────────────────
+      // ── Batch finished — build results, generate AI summary, then dispatch ────
       logger.success(`Batch ${batchId} complete — dispatching Slack reports`, { batchId });
 
       const groups = status.run_groups ?? [];
+
+      // ── Build structured results (needed for both summary + dispatch) ─────────
+      const allResults = groups
+        .filter(g => suiteIdForName(g.name))
+        .map(g => {
+          const runUrl = g.id ? `https://autosana.ai/runs/groups/${g.id}` : g.url ?? undefined;
+          const runs   = g.runs ?? [];
+          const passed = runs.filter(r => normaliseStatus(r.status) === 'passed').length;
+          const failed = runs.filter(r => normaliseStatus(r.status) !== 'passed').length;
+          const allFlowDetails = runs.map(r => ({
+            name:    r.name    ?? 'Unknown',
+            status:  normaliseStatus(r.status),
+            summary: r.summary ?? '',
+          }));
+          const failedFlowDetails = allFlowDetails.filter(f => f.status !== 'passed');
+          return { suiteName: g.name, runUrl, passed, failed, allFlowDetails, failedFlowDetails };
+        });
+
+      const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
+      const totalFailed = allResults.reduce((s, r) => s + r.failed, 0);
+
+      // Generate AI summary BEFORE dispatching so it can be included in Slack
+      let testSummary: string | undefined;
+      if (allResults.length) {
+        try {
+          testSummary = await summariseTestResults(allResults, triggeredBy);
+        } catch {
+          // Non-fatal — fall back to no summary
+        }
+      }
+
+      // ── Per-suite GitHub dispatch ─────────────────────────────────────────────
       let dispatched = 0;
 
       for (const group of groups) {
@@ -122,7 +154,10 @@ export function startPolling(params: {
           : group.url ?? undefined;
 
         try {
-          await dispatchSuiteCompleted({ suiteId, suiteName, runDate, flows, environment, triggeredBy });
+          await dispatchSuiteCompleted({
+            suiteId, suiteName, runDate, flows, environment, triggeredBy,
+            testSummary,  // include AI summary so it appears in the Slack report
+          });
           logger.success(`GitHub dispatch sent for "${suiteName}"`, {
             suiteId,
             flowCount: flows.length,
@@ -143,35 +178,8 @@ export function startPolling(params: {
         );
       }
 
-      // ── Structured results event for the Railway activity log ───────────────
-      const allResults = groups
-        .filter(g => suiteIdForName(g.name))
-        .map(g => {
-          const runUrl = g.id ? `https://autosana.ai/runs/groups/${g.id}` : g.url ?? undefined;
-          const runs   = g.runs ?? [];
-          const passed = runs.filter(r => normaliseStatus(r.status) === 'passed').length;
-          const failed = runs.filter(r => normaliseStatus(r.status) !== 'passed').length;
-          const allFlowDetails = runs.map(r => ({
-            name:    r.name    ?? 'Unknown',
-            status:  normaliseStatus(r.status),
-            summary: r.summary ?? '',
-          }));
-          const failedFlowDetails = allFlowDetails.filter(f => f.status !== 'passed');
-          return { suiteName: g.name, runUrl, passed, failed, allFlowDetails, failedFlowDetails };
-        });
-
+      // ── Log structured results to Railway activity log ────────────────────────
       if (allResults.length) {
-        const totalPassed = allResults.reduce((s, r) => s + r.passed, 0);
-        const totalFailed = allResults.reduce((s, r) => s + r.failed, 0);
-
-        // Generate AI summary
-        let testSummary: string | undefined;
-        try {
-          testSummary = await summariseTestResults(allResults, triggeredBy);
-        } catch {
-          // Non-fatal — fall back to no summary
-        }
-
         const logFn = totalFailed === 0 ? logger.success : logger.warn;
         logFn(
           testSummary ?? `Test results: ${totalPassed} passed, ${totalFailed} failed`,
