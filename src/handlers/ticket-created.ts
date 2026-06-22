@@ -29,36 +29,37 @@ import { extractSprintName, isSprintActive, extractEpicRef } from '../services/j
 import { config } from '../config';
 
 // ── Dedup guard ───────────────────────────────────────────────────────────────
-// Jira occasionally re-delivers issue_created webhooks (e.g. when a
-// redeploy kills the connection mid-flight). Without this guard each
-// re-delivery runs the full AI pipeline, producing near-identical but
-// not-quite-identical log messages that slip through the per-event
-// minute-bucket dedup in ticket-store.ts (because Claude text varies).
+// Jira re-delivers issue_created webhooks when a connection drops mid-flight.
+// Each re-delivery would run the full AI pipeline and produce near-identical
+// but not-quite-identical log messages (Claude text varies), bypassing the
+// per-event minute-bucket dedup in ticket-store.ts.
 //
-// TTL is 10 minutes — long enough to cover any realistic re-delivery window
-// while still allowing a genuine re-run if the ticket is deleted and recreated.
+// Two-layer guard (no time-sensitivity):
+//  1. Persistent store check — if the ticket already has stored events we've
+//     processed it before, even across server restarts. Always skip.
+//  2. In-flight set — prevents two concurrent deliveries both passing check 1
+//     before either has finished writing its first event to the store.
 
-const DEDUP_TTL_MS    = 10 * 60 * 1000;
-const recentCreations = new Map<string, number>();
+const inFlight = new Set<string>();
 
 export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
   const { key } = issue;
   const fields   = issue.fields;
 
-  // Block duplicate deliveries of the same issue_created event
-  const now    = Date.now();
-  const expiry = recentCreations.get(key);
-  if (expiry !== undefined && now < expiry) {
-    console.log(`[ticket-created] Duplicate issue_created for ${key} — skipping (dedup)`);
+  // Guard 1: persistent — already processed (survives restarts)
+  if (ticketStore.getTicket(key)?.events.length) {
+    console.log(`[ticket-created] ${key} already has stored events — skipping duplicate issue_created`);
     return;
   }
-  recentCreations.set(key, now + DEDUP_TTL_MS);
-  // Prune stale entries so the map doesn't grow unbounded
-  if (recentCreations.size > 200) {
-    for (const [k, exp] of recentCreations) {
-      if (Date.now() > exp) recentCreations.delete(k);
-    }
+
+  // Guard 2: in-flight — concurrent delivery arrived before Guard 1 could fire
+  if (inFlight.has(key)) {
+    console.log(`[ticket-created] ${key} already in-flight — skipping concurrent duplicate`);
+    return;
   }
+
+  inFlight.add(key);
+  try {
 
   logger.info(`Ticket created: ${key} — "${fields.summary}"`);
 
@@ -193,4 +194,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
     logger.warn(`Could not send Slack recommendation for ${key}`, { error: String(err), key });
   }
 
+  } finally {
+    inFlight.delete(key);
+  }
 }
