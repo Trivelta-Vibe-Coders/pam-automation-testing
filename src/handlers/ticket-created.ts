@@ -28,9 +28,37 @@ import * as jiraClient from '../services/jira';
 import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
 
+// ── Dedup guard ───────────────────────────────────────────────────────────────
+// Jira occasionally re-delivers issue_created webhooks (e.g. when a
+// redeploy kills the connection mid-flight). Without this guard each
+// re-delivery runs the full AI pipeline, producing near-identical but
+// not-quite-identical log messages that slip through the per-event
+// minute-bucket dedup in ticket-store.ts (because Claude text varies).
+//
+// TTL is 10 minutes — long enough to cover any realistic re-delivery window
+// while still allowing a genuine re-run if the ticket is deleted and recreated.
+
+const DEDUP_TTL_MS    = 10 * 60 * 1000;
+const recentCreations = new Map<string, number>();
+
 export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
   const { key } = issue;
   const fields   = issue.fields;
+
+  // Block duplicate deliveries of the same issue_created event
+  const now    = Date.now();
+  const expiry = recentCreations.get(key);
+  if (expiry !== undefined && now < expiry) {
+    console.log(`[ticket-created] Duplicate issue_created for ${key} — skipping (dedup)`);
+    return;
+  }
+  recentCreations.set(key, now + DEDUP_TTL_MS);
+  // Prune stale entries so the map doesn't grow unbounded
+  if (recentCreations.size > 200) {
+    for (const [k, exp] of recentCreations) {
+      if (Date.now() > exp) recentCreations.delete(k);
+    }
+  }
 
   logger.info(`Ticket created: ${key} — "${fields.summary}"`);
 
