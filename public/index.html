@@ -616,10 +616,7 @@ function prettify(msg, details) {
     return `Test coverage needed — ${reason}`;
   }
 
-  if (/^Fetched \d+ existing flow/.test(msg)) {
-    const n = msg.match(/\d+/)?.[0] ?? '?';
-    return `Searched Autosana — found ${n} existing flow${n==='1'?'':'s'}`;
-  }
+  if (/^Fetched \d+ existing flow/.test(msg)) return null;
 
   if (/^Match found for \S+:/.test(msg)) {
     const name  = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
@@ -657,10 +654,7 @@ function prettify(msg, details) {
     return `Status changed to "${status}" — not a configured trigger (check JIRA_STATUS_DEV / JIRA_STATUS_STG)`;
   }
 
-  if (/^Found stored flow link for/.test(msg)) {
-    const name = msg.match(/: "([^"]+)"/)?.[1] ?? 'flow';
-    return `Found linked flow: "${name}"`;
-  }
+  if (/^Found stored flow link for/.test(msg)) return null;
 
   if (/^No stored flow link for/.test(msg))
     return 'No flow link found — running semantic search for best match';
@@ -680,15 +674,7 @@ function prettify(msg, details) {
   if (/^Slack flow recommendation sent for/.test(msg))
     return 'Slack notification sent — review test instructions and create flow in Autosana';
 
-  if (/^Instructions drafted for existing flow/.test(msg)) {
-    const name = msg.match(/"([^"]+)"/)?.[1] ?? 'flow';
-    return `Draft instructions prepared for existing flow "${name}"`;
-  }
-
-  if (/^Instructions drafted for new flow/.test(msg)) {
-    const suite = msg.match(/suite "([^"]+)"/)?.[1] ?? 'suite';
-    return `Draft instructions prepared for new flow in "${suite}"`;
-  }
+  if (/^Instructions drafted for/.test(msg)) return null;
 
   if (/^Jira comment posted on/.test(msg))
     return 'Posted run details to Jira ticket';
@@ -717,11 +703,7 @@ function prettify(msg, details) {
     return 'Webhook received';
   }
 
-  if (/^Triggering \d+ suite/.test(msg)) {
-    const n   = msg.match(/Triggering (\d+)/)?.[1] ?? '?';
-    const env = msg.match(/against (\w+)/)?.[1]    ?? '?';
-    return `Triggering ${n} test suite${n==='1'?'':'s'} on ${env}`;
-  }
+  if (/^Triggering \d+ suite/.test(msg)) return null;
 
   if (/^Run triggered —/.test(msg)) {
     const flows      = msg.match(/\((\d+) flows?\)/)?.[1]   ?? '?';
@@ -729,21 +711,14 @@ function prettify(msg, details) {
     return `Test run started — ${flows} flow${flows==='1'?'':'s'} queued${batchShort ? ` (batch ${batchShort}…)` : ''}`;
   }
 
-  if (/^Polling started for batch/.test(msg)) {
-    const batchShort = (details?.batchId ?? '').slice(0,8);
-    return `Polling for test results${batchShort ? ` (batch ${batchShort}…)` : ''}`;
-  }
+  if (/^Polling started for batch/.test(msg)) return null;
 
   // Suppress verbose poll-tick messages
   if (/^Poll \d+\/\d+/.test(msg)) return null;
 
-  if (/^Batch \S+ complete — dispatching/.test(msg))
-    return 'Tests completed — sending Slack reports';
+  if (/^Batch \S+ complete — dispatching/.test(msg)) return null;
 
-  if (/^GitHub dispatch sent for/.test(msg)) {
-    const suite = msg.match(/for "([^"]+)"/)?.[1] ?? 'suite';
-    return `Slack report dispatched for the "${suite}" suite`;
-  }
+  if (/^GitHub dispatch sent for/.test(msg)) return null;
 
   if (/suite\(s\) dispatched to GitHub Actions/.test(msg)) {
     const n = msg.match(/^(\d+)/)?.[1] ?? '?';

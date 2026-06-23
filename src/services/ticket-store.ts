@@ -45,6 +45,22 @@ function levelPriority(l: ActivityLevel): number {
 // store in per-ticket history (they accumulate for every Jira field edit).
 const WEBHOOK_NOISE_RE = /^Webhook received: jira:\S+ for PAMENG-\d+$/;
 
+// Intermediate pipeline steps that add no value to the ticket timeline.
+// The meaningful outcome is always captured by a subsequent event.
+const PIPELINE_NOISE_RES: RegExp[] = [
+  /^Fetched \d+ existing flow/,         // internal Autosana fetch; result shown by match/no-match
+  /^Instructions drafted for/,          // internal; "Slack notification sent" is the outcome
+  /^Found stored flow link for/,        // internal; triggering message follows immediately
+  /^Polling started for batch/,         // internal polling state; test results follow
+  /^Triggering \d+ suite/,             // internal; "Run triggered" follows with batch details
+  /^Batch \S+ complete — dispatching/, // intermediate; dispatch totals follow
+  /^GitHub dispatch sent for/,          // per-suite; total count line captures the outcome
+];
+
+function isPipelineNoise(message: string): boolean {
+  return PIPELINE_NOISE_RES.some(re => re.test(message));
+}
+
 /**
  * Remove duplicate events and legacy webhook-receipt noise from a ticket's
  * history.
@@ -52,6 +68,8 @@ const WEBHOOK_NOISE_RE = /^Webhook received: jira:\S+ for PAMENG-\d+$/;
  * Dedup key strategy:
  *  - Strip "Webhook received: jira:XXX for PAMENG-NNN" lines entirely —
  *    they fired for every Jira edit and carry no actionable info.
+ *  - Strip intermediate pipeline steps (Autosana fetches, polling, dispatch
+ *    per-suite lines, etc.) — the meaningful outcome follows each one.
  *  - If the event has a batchId in details → key = message + batchId
  *    (same message from a different batch is a real separate event)
  *  - Otherwise → key = message + minute-bucket (YYYY-MM-DDTHH:MM)
@@ -63,6 +81,8 @@ function deduplicateEvents(events: ActivityEvent[]): ActivityEvent[] {
   for (const e of events) {
     // Drop legacy webhook-noise entries
     if (WEBHOOK_NOISE_RE.test(e.message)) continue;
+    // Drop intermediate pipeline noise
+    if (isPipelineNoise(e.message)) continue;
 
     const batchId = String((e.details as Record<string, unknown>)?.batchId ?? '');
     const minute  = e.timestamp.slice(0, 16);  // "2024-01-15T10:30"
@@ -149,6 +169,8 @@ export function addEvent(key: string, event: ActivityEvent): void {
   // Webhook-receipt lines fire for every Jira field edit and add no useful info
   // to the ticket timeline. Drop them — meaningful events are logged separately.
   if (WEBHOOK_NOISE_RE.test(event.message)) return;
+  // Intermediate pipeline steps clutter the timeline without adding value.
+  if (isPipelineNoise(event.message)) return;
 
   // ── Dedup guard ──────────────────────────────────────────────────────────────
   // Skip if an identical event was already recorded within the last 2 minutes.
