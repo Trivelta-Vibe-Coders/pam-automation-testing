@@ -335,8 +335,15 @@
     .dash-passing-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-passing-key:hover { text-decoration:underline; }
     .dash-passing-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Blocker action buttons row (Re-run + Dismiss) */
+    .dash-blocker-actions { display:flex; gap:6px; margin-top:6px; align-items:center; }
+    .dash-blocker-rerun { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; font-weight:600; padding:3px 9px; cursor:pointer; transition:border-color .15s,color .15s; letter-spacing:.3px; }
+    .dash-blocker-rerun:hover { border-color:var(--indigo); color:var(--indigo); }
+    .dash-blocker-rerun.running { border-color:var(--indigo); color:var(--indigo); cursor:default; }
+    .dash-blocker-rerun.queued  { border-color:var(--green);  color:var(--green);  cursor:default; }
+    .dash-blocker-rerun.error   { border-color:var(--red);    color:var(--red);    cursor:default; }
     /* Dismiss button */
-    .dash-blocker-dismiss { margin-top:6px; background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; font-weight:600; padding:3px 9px; cursor:pointer; transition:border-color .15s,color .15s; letter-spacing:.3px; }
+    .dash-blocker-dismiss { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; font-weight:600; padding:3px 9px; cursor:pointer; transition:border-color .15s,color .15s; letter-spacing:.3px; }
     .dash-blocker-dismiss:hover { border-color:var(--yellow); color:var(--yellow); }
     /* Dismissed section */
     .dash-dismissed { }
@@ -1326,9 +1333,10 @@ document.getElementById('filter-clear').addEventListener('click', () => {
 const rerunDialog   = document.getElementById('rerun-dialog');
 const rerunDialogKey = document.getElementById('rerun-dialog-key');
 
-function openRerunDialog(key) {
+function openRerunDialog(key, dashBtn) {
   rerunDialogKey.textContent = key;
   rerunDialog._currentKey = key;
+  rerunDialog._dashBtn    = dashBtn ?? null; // dashboard blocker button, if any
   rerunDialog.showModal();
 }
 
@@ -1343,15 +1351,23 @@ rerunDialog.addEventListener('click', e => {
 
 rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
-    const key = rerunDialog._currentKey;
-    const env = btn.dataset.env;
+    const key     = rerunDialog._currentKey;
+    const env     = btn.dataset.env;
+    const dashBtn = rerunDialog._dashBtn;
     rerunDialog.close();
 
-    const entry = ticketCards.get(key);
+    // Update activity-log card button (if the ticket card exists)
+    const entry   = ticketCards.get(key);
     const rerunEl = entry?.rerunEl;
     if (rerunEl) {
       rerunEl.textContent = '↺ Running…';
       rerunEl.className = 'tc-rerun running';
+    }
+
+    // Update dashboard blocker button (if triggered from the dashboard)
+    if (dashBtn) {
+      dashBtn.textContent = '↺ Running…';
+      dashBtn.className   = 'dash-blocker-rerun running';
     }
 
     try {
@@ -1371,6 +1387,14 @@ rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
           rerunEl.className = 'tc-rerun';
         }, 4000);
       }
+      if (dashBtn) {
+        dashBtn.textContent = `✓ Queued`;
+        dashBtn.className   = 'dash-blocker-rerun queued';
+        setTimeout(() => {
+          dashBtn.textContent = '↺ Re-run';
+          dashBtn.className   = 'dash-blocker-rerun';
+        }, 4000);
+      }
     } catch (err) {
       if (rerunEl) {
         rerunEl.textContent = '✕ Failed';
@@ -1380,6 +1404,16 @@ rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
           rerunEl.textContent = '↺ Re-run';
           rerunEl.className = 'tc-rerun';
           rerunEl.title = 'Re-run linked flows in a specific environment';
+        }, 4000);
+      }
+      if (dashBtn) {
+        dashBtn.textContent = '✕ Failed';
+        dashBtn.className   = 'dash-blocker-rerun error';
+        dashBtn.title       = String(err);
+        setTimeout(() => {
+          dashBtn.textContent = '↺ Re-run';
+          dashBtn.className   = 'dash-blocker-rerun';
+          dashBtn.title       = '';
         }, 4000);
       }
     }
@@ -2090,22 +2124,35 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         item.appendChild(body);
       }
 
-      // "Not a blocker" button — only on test_failed blockers
-      if (b.type === 'test_failed') {
-        const dismissBtn = document.createElement('button');
-        dismissBtn.className = 'dash-blocker-dismiss';
-        dismissBtn.textContent = 'Not a blocker';
-        dismissBtn.addEventListener('click', async () => {
-          dismissBtn.disabled = true;
-          dismissBtn.textContent = 'Saving…';
-          await fetch('/api/dashboard/dismiss', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: true }),
+      // Action buttons — re-run (all linked blockers) + dismiss (test_failed only)
+      if (b.type !== 'no_link') {
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'dash-blocker-actions';
+
+        const rerunBtn = document.createElement('button');
+        rerunBtn.className = 'dash-blocker-rerun';
+        rerunBtn.textContent = '↺ Re-run';
+        rerunBtn.addEventListener('click', () => openRerunDialog(b.ticketKey, rerunBtn));
+        actionsRow.appendChild(rerunBtn);
+
+        if (b.type === 'test_failed') {
+          const dismissBtn = document.createElement('button');
+          dismissBtn.className = 'dash-blocker-dismiss';
+          dismissBtn.textContent = 'Not a blocker';
+          dismissBtn.addEventListener('click', async () => {
+            dismissBtn.disabled = true;
+            dismissBtn.textContent = 'Saving…';
+            await fetch('/api/dashboard/dismiss', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: true }),
+            });
+            loadDashboard();
           });
-          loadDashboard();
-        });
-        item.appendChild(dismissBtn);
+          actionsRow.appendChild(dismissBtn);
+        }
+
+        item.appendChild(actionsRow);
       }
 
       list.appendChild(item);
