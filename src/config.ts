@@ -34,6 +34,7 @@ export const config = {
     'PAM Withdrawal Review':   optional_env('SUITE_ID_WITHDRAWAL_REVIEW',  '2ebb9619-c286-465c-8f8d-64ca4978c219'),
     'PAM UTM Reports':         optional_env('SUITE_ID_UTM_REPORTS',        '642f5b65-25a0-4c68-9042-889131d03a90'),
     'PAM Sportsbook Reports':  optional_env('SUITE_ID_SPORTSBOOK_REPORTS', 'd4e1ce94-e5fc-4787-8b5f-7599bcbefde1'),
+    'PAM Payments':            optional_env('SUITE_ID_PAYMENTS',           'cd009d2a-3e7c-4a16-a694-39bfad7708b6'),
   } as Record<string, string>,
 
   // Jira status names that trigger test runs
