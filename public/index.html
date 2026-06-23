@@ -2041,6 +2041,19 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       titleEl.textContent = b.ticketTitle;
       header.appendChild(titleEl);
 
+      // Re-run button — sits to the left of the reason badge (linked blockers only)
+      let rerunBtn = null;
+      if (b.type !== 'no_link') {
+        rerunBtn = document.createElement('button');
+        rerunBtn.className = 'dash-blocker-rerun';
+        rerunBtn.textContent = '↺ Re-run';
+        rerunBtn.addEventListener('click', e => {
+          e.stopPropagation(); // don't toggle collapse on collapsible headers
+          openRerunDialog(b.ticketKey, rerunBtn);
+        });
+        header.appendChild(rerunBtn);
+      }
+
       const reasonEl = document.createElement('span');
       reasonEl.className = 'dash-blocker-reason ' + (
         b.type === 'no_link'     ? 'no-link' :
@@ -2124,35 +2137,22 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         item.appendChild(body);
       }
 
-      // Action buttons — re-run (all linked blockers) + dismiss (test_failed only)
-      if (b.type !== 'no_link') {
-        const actionsRow = document.createElement('div');
-        actionsRow.className = 'dash-blocker-actions';
-
-        const rerunBtn = document.createElement('button');
-        rerunBtn.className = 'dash-blocker-rerun';
-        rerunBtn.textContent = '↺ Re-run';
-        rerunBtn.addEventListener('click', () => openRerunDialog(b.ticketKey, rerunBtn));
-        actionsRow.appendChild(rerunBtn);
-
-        if (b.type === 'test_failed') {
-          const dismissBtn = document.createElement('button');
-          dismissBtn.className = 'dash-blocker-dismiss';
-          dismissBtn.textContent = 'Not a blocker';
-          dismissBtn.addEventListener('click', async () => {
-            dismissBtn.disabled = true;
-            dismissBtn.textContent = 'Saving…';
-            await fetch('/api/dashboard/dismiss', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: true }),
-            });
-            loadDashboard();
+      // Dismiss button — only on test_failed blockers
+      if (b.type === 'test_failed') {
+        const dismissBtn = document.createElement('button');
+        dismissBtn.className = 'dash-blocker-dismiss';
+        dismissBtn.textContent = 'Not a blocker';
+        dismissBtn.addEventListener('click', async () => {
+          dismissBtn.disabled = true;
+          dismissBtn.textContent = 'Saving…';
+          await fetch('/api/dashboard/dismiss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, dismissed: true }),
           });
-          actionsRow.appendChild(dismissBtn);
-        }
-
-        item.appendChild(actionsRow);
+          loadDashboard();
+        });
+        item.appendChild(dismissBtn);
       }
 
       list.appendChild(item);
