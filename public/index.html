@@ -379,6 +379,29 @@
     .dash-refresh-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:11px; padding:5px 12px; cursor:pointer; transition:border-color .15s,color .15s; }
     .dash-refresh-btn:hover { border-color:var(--indigo); color:var(--indigo); }
     .dash-refresh-ts { font-size:11px; color:var(--muted); }
+    /* Bug ticket links inside a blocker */
+    .dash-bug-section { margin-top:10px; padding-top:10px; border-top:1px solid rgba(45,49,72,.5); }
+    .dash-bug-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:6px; display:block; }
+    .dash-bug-chips { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:6px; }
+    .dash-bug-chip { display:inline-flex; align-items:center; gap:5px; background:var(--bg3); border:1px solid var(--border); border-radius:999px; padding:2px 6px 2px 8px; font-size:11px; }
+    .dash-bug-chip-key { color:var(--indigo); text-decoration:none; font-family:var(--font-mono); font-weight:600; }
+    .dash-bug-chip-key:hover { text-decoration:underline; }
+    .dash-bug-chip-status { font-size:10px; color:var(--muted); }
+    .dash-bug-chip-status.s-dev      { color:var(--blue); }
+    .dash-bug-chip-status.s-stg      { color:var(--indigo); }
+    .dash-bug-chip-status.s-done     { color:var(--green); }
+    .dash-bug-chip-status.s-progress { color:var(--yellow); }
+    .dash-bug-chip-status.s-blocked  { color:var(--red); }
+    .dash-bug-chip-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:11px; padding:0; line-height:1; flex-shrink:0; transition:color .1s; }
+    .dash-bug-chip-remove:hover { color:var(--red); }
+    .dash-bug-add { display:flex; align-items:center; gap:4px; }
+    .dash-bug-prefix { font-size:11px; color:var(--muted); font-family:var(--font-mono); white-space:nowrap; flex-shrink:0; }
+    .dash-bug-input { background:var(--bg3); border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:11px; padding:3px 6px; width:60px; font-family:var(--font-mono); }
+    .dash-bug-input:focus { outline:none; border-color:var(--indigo); }
+    .dash-bug-link-btn { background:none; border:1px solid var(--border); border-radius:4px; color:var(--muted); font-size:11px; padding:3px 8px; cursor:pointer; transition:border-color .15s,color .15s; white-space:nowrap; }
+    .dash-bug-link-btn:hover:not(:disabled) { border-color:var(--indigo); color:var(--indigo); }
+    .dash-bug-link-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .dash-bug-error { font-size:10px; color:var(--red); margin-top:4px; }
   </style>
 </head>
 <body>
@@ -2065,8 +2088,11 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       );
       header.appendChild(reasonEl);
 
-      // Build collapsible body (summary + flow list) for test_failed blockers
-      const hasBody = b.type === 'test_failed' && (b.testSummary || (b.failedFlows && b.failedFlows.length));
+      // Collapsible body for all linked blockers:
+      //   test_failed  → AI summary + failed flows + bug tickets
+      //   never_tested → bug tickets only
+      //   no_link      → no body (nothing to show or link)
+      const hasBody = b.type !== 'no_link';
       if (hasBody) {
         const chevron = document.createElement('span');
         chevron.className = 'dash-blocker-chevron';
@@ -2086,16 +2112,16 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         const body = document.createElement('div');
         body.className = 'dash-blocker-body';
 
-        // AI summary
-        if (b.testSummary) {
+        // AI summary (test_failed only)
+        if (b.type === 'test_failed' && b.testSummary) {
           const sumEl = document.createElement('p');
           sumEl.className = 'dash-blocker-summary';
           sumEl.textContent = b.testSummary;
           body.appendChild(sumEl);
         }
 
-        // Failing flow list with per-flow Autosana reason
-        if (b.failedFlows && b.failedFlows.length) {
+        // Failing flow list with per-flow Autosana reason (test_failed only)
+        if (b.type === 'test_failed' && b.failedFlows && b.failedFlows.length) {
           const flowList = document.createElement('ul');
           flowList.className = 'dash-blocker-flows';
           for (const f of b.failedFlows) {
@@ -2133,6 +2159,117 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
           }
           body.appendChild(flowList);
         }
+
+        // ── Bug tickets section ─────────────────────────────────────────────
+        const bugSection = document.createElement('div');
+        bugSection.className = 'dash-bug-section';
+
+        const bugLabel = document.createElement('span');
+        bugLabel.className = 'dash-bug-label';
+        bugLabel.textContent = 'Bug Tickets';
+        bugSection.appendChild(bugLabel);
+
+        // Render existing linked bug tickets as chips
+        const bugChips = document.createElement('div');
+        bugChips.className = 'dash-bug-chips';
+        for (const bl of (b.bugLinks ?? [])) {
+          const chip = document.createElement('div');
+          chip.className = 'dash-bug-chip';
+
+          const keyLink = document.createElement('a');
+          keyLink.className = 'dash-bug-chip-key';
+          keyLink.href = bl.jiraUrl;
+          keyLink.target = '_blank';
+          keyLink.rel = 'noopener';
+          keyLink.textContent = bl.bugKey;
+          keyLink.addEventListener('click', e => e.stopPropagation());
+          chip.appendChild(keyLink);
+
+          if (bl.jiraStatus) {
+            const statusEl = document.createElement('span');
+            statusEl.className = 'dash-bug-chip-status ' + jiraStatusClass(bl.jiraStatus);
+            statusEl.textContent = bl.jiraStatus;
+            chip.appendChild(statusEl);
+          }
+
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'dash-bug-chip-remove';
+          removeBtn.textContent = '✕';
+          removeBtn.title = 'Remove bug link';
+          removeBtn.addEventListener('click', async e => {
+            e.stopPropagation();
+            removeBtn.disabled = true;
+            try {
+              await fetch(`/api/bug-links/${encodeURIComponent(bl.bugKey)}`, { method: 'DELETE' });
+              loadDashboard();
+            } catch { removeBtn.disabled = false; }
+          });
+          chip.appendChild(removeBtn);
+          bugChips.appendChild(chip);
+        }
+        bugSection.appendChild(bugChips);
+
+        // Add bug link input row
+        const bugAdd = document.createElement('div');
+        bugAdd.className = 'dash-bug-add';
+
+        const bugPrefix = document.createElement('span');
+        bugPrefix.className = 'dash-bug-prefix';
+        bugPrefix.textContent = 'PAMENG-';
+        bugAdd.appendChild(bugPrefix);
+
+        const bugInput = document.createElement('input');
+        bugInput.type = 'text';
+        bugInput.className = 'dash-bug-input';
+        bugInput.placeholder = '123';
+        bugInput.inputMode = 'numeric';
+        bugInput.autocomplete = 'off';
+        bugInput.addEventListener('click', e => e.stopPropagation());
+        bugAdd.appendChild(bugInput);
+
+        const bugLinkBtn = document.createElement('button');
+        bugLinkBtn.className = 'dash-bug-link-btn';
+        bugLinkBtn.textContent = 'Link';
+        bugLinkBtn.disabled = true;
+        bugAdd.appendChild(bugLinkBtn);
+
+        const bugError = document.createElement('div');
+        bugError.className = 'dash-bug-error';
+        bugError.style.display = 'none';
+
+        bugInput.addEventListener('input', () => {
+          bugLinkBtn.disabled = !/^\d+$/.test(bugInput.value.trim());
+          bugError.style.display = 'none';
+        });
+
+        bugLinkBtn.addEventListener('click', async e => {
+          e.stopPropagation();
+          const bugKey = `PAMENG-${bugInput.value.trim()}`;
+          bugLinkBtn.disabled = true;
+          bugLinkBtn.textContent = 'Linking…';
+          bugError.style.display = 'none';
+          try {
+            const res = await fetch('/api/bug-links', {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify({ bugKey, parentKey: b.ticketKey }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error ?? res.statusText);
+            bugInput.value = '';
+            bugLinkBtn.textContent = 'Link';
+            loadDashboard();
+          } catch (err) {
+            bugError.textContent = String(err);
+            bugError.style.display = 'block';
+            bugLinkBtn.disabled = false;
+            bugLinkBtn.textContent = 'Link';
+          }
+        });
+
+        bugSection.appendChild(bugAdd);
+        bugSection.appendChild(bugError);
+        body.appendChild(bugSection);
 
         item.appendChild(body);
       }

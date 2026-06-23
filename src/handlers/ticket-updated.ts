@@ -15,6 +15,7 @@ import * as jiraClient from '../services/jira';
 import * as flowLinks from '../services/flow-links';
 import * as ticketStore from '../services/ticket-store';
 import * as envRestrictions from '../services/env-restrictions';
+import * as bugLinksStore from '../services/bug-links';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
 import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
@@ -98,6 +99,49 @@ export async function handleTicketUpdated(payload: JiraWebhookPayload): Promise<
       { key, fromStatus, toStatus: newStatus },
     );
     return;
+  }
+
+  // ── Bug link trigger ──────────────────────────────────────────────────────────
+  // If this ticket is a bug fix for a parent ticket, re-run the parent's linked
+  // flows in the environment matching the new status. This runs before the
+  // noTestNeeded check because that flag applies to the ticket's own flows, not
+  // to its role as a bug fix proxy for another ticket.
+  const bugLink = bugLinksStore.getBugLink(key);
+  if (bugLink && env) {
+    const { parentKey } = bugLink;
+    const parentLink = flowLinks.getLink(parentKey);
+    if (parentLink?.flows.length) {
+      try {
+        const bugResult = await triggerFlows({
+          environment: env,
+          flowIds:     parentLink.flows.map(f => f.flowId),
+          jiraKey:     parentKey,
+        });
+        startPolling({ batchId: bugResult.batchId, environment: env, triggeredBy: parentKey });
+        // Log on the bug ticket's card
+        logger.success(
+          `${key} moved to "${newStatus}" — triggered re-run of ${parentKey} tests in ${env}`,
+          { key, parentKey, batchId: bugResult.batchId },
+        );
+        // Log on the parent ticket's card
+        logger.success(
+          `Re-run triggered by bug fix ${key} moving to "${newStatus}"`,
+          { key: parentKey, triggeredBy: key, batchId: bugResult.batchId },
+        );
+      } catch (err) {
+        logger.error(
+          `Bug-fix re-run failed for ${parentKey} (triggered by ${key})`,
+          { error: String(err), key: parentKey },
+        );
+      }
+    } else {
+      logger.info(
+        `${key} is a bug fix for ${parentKey} — ${parentKey} has no linked flows, skipping re-run`,
+        { key, parentKey },
+      );
+    }
+    // If this ticket has no flows of its own, nothing else to do
+    if (!flowLinks.getLink(key)) return;
   }
 
   // Respect manual "no test needed" override

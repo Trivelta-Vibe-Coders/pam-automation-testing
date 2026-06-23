@@ -26,6 +26,7 @@ import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
 import * as dismissedBlockers_ from './services/dismissed-blockers';
 import { startPolling } from './services/batch-poller';
+import * as bugLinksStore from './services/bug-links';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -331,6 +332,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
   }
 
   // ── Shapes ────────────────────────────────────────────────────────────────
+  interface BugLinkEntry { bugKey: string; jiraStatus: string; jiraUrl: string; }
   interface Blocker {
     type:         'no_link' | 'test_failed' | 'never_tested';
     ticketKey:    string;
@@ -339,6 +341,16 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     jiraUrl:      string;
     testSummary?: string;
     failedFlows?: FailedFlow[];
+    bugLinks?:    BugLinkEntry[];
+  }
+
+  /** Resolve bug links for a ticket, enriched with current Jira status. */
+  function resolveBugLinks(parentKey: string): BugLinkEntry[] {
+    return bugLinksStore.getBugLinksForParent(parentKey).map(l => ({
+      bugKey:    l.bugKey,
+      jiraStatus: ticketStore.getTicket(l.bugKey)?.jiraStatus ?? '',
+      jiraUrl:   `${config.jiraBaseUrl}/browse/${l.bugKey}`,
+    }));
   }
   interface SimpleTicket {
     ticketKey:   string;
@@ -374,12 +386,13 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
 
       const result = latestResult(ticket, env);
       if (!result) {
-        blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl });
+        blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key) });
       } else if (!result.passed) {
         const blocker: Blocker = {
           type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl,
           testSummary: result.testSummary || undefined,
           failedFlows: result.failedFlows,
+          bugLinks:    resolveBugLinks(ticket.key),
         };
         // Route to dismissed list if the team has marked it as not a blocker
         if (dismissedBlockers_.isDismissed(ticket.key, card)) {
@@ -430,6 +443,43 @@ app.post('/api/dashboard/dismiss', (req: Request, res: Response) => {
   }
   dismissedBlockers_.setDismissed(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', dismissed);
   res.json({ ok: true, ticketKey, card, dismissed });
+});
+
+// ── API: bug ticket links ─────────────────────────────────────────────────────
+app.get('/api/bug-links', (_req: Request, res: Response) => {
+  res.json(bugLinksStore.getAllBugLinks());
+});
+
+app.post('/api/bug-links', (req: Request, res: Response) => {
+  const { bugKey, parentKey } = req.body ?? {};
+  if (!bugKey || !parentKey) {
+    res.status(400).json({ error: 'bugKey and parentKey are required' });
+    return;
+  }
+  if (!/^[A-Z]+-\d+$/i.test(String(bugKey)) || !/^[A-Z]+-\d+$/i.test(String(parentKey))) {
+    res.status(400).json({ error: 'Keys must be in format PROJECT-123' });
+    return;
+  }
+  const bk = String(bugKey).toUpperCase();
+  const pk = String(parentKey).toUpperCase();
+  if (bk === pk) {
+    res.status(400).json({ error: 'A ticket cannot be its own bug link' });
+    return;
+  }
+  const link = bugLinksStore.addBugLink(bk, pk);
+  logger.info(`Bug link added: ${bk} → ${pk}`, { key: pk, bugKey: bk });
+  res.json({ ok: true, link });
+});
+
+app.delete('/api/bug-links/:bugKey', (req: Request, res: Response) => {
+  const bugKey  = req.params.bugKey.toUpperCase();
+  const removed = bugLinksStore.removeBugLink(bugKey);
+  if (removed) {
+    logger.info(`Bug link removed: ${bugKey}`, { bugKey });
+    res.json({ ok: true });
+  } else {
+    res.status(404).json({ ok: false, error: 'Bug link not found' });
+  }
 });
 
 // ── Webhook routes ────────────────────────────────────────────────────────────
