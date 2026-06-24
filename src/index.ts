@@ -191,8 +191,9 @@ app.post('/api/env-restrictions', (req: Request, res: Response) => {
 
 // ── API: manual re-run linked flows for a ticket ─────────────────────────────
 app.post('/api/tickets/:key/rerun', async (req: Request, res: Response) => {
-  const key = req.params.key.toUpperCase();
-  const env = (req.body?.environment ?? 'staging') as TriggerEnvironment;
+  const key              = req.params.key.toUpperCase();
+  const env              = (req.body?.environment ?? 'staging') as TriggerEnvironment;
+  const requestedFlowIds = Array.isArray(req.body?.flowIds) ? (req.body.flowIds as string[]) : null;
 
   const link = flowLinks.getLink(key);
   if (!link || !link.flows.length) {
@@ -200,8 +201,13 @@ app.post('/api/tickets/:key/rerun', async (req: Request, res: Response) => {
     return;
   }
 
+  // If the caller requested a specific subset, restrict to only those IDs.
+  // Always fall back to all linked flows when no selection is provided.
+  let flowIds = requestedFlowIds?.length
+    ? link.flows.map(f => f.flowId).filter(id => requestedFlowIds.includes(id))
+    : link.flows.map(f => f.flowId);
+
   // Respect env restrictions so prod-only flows don't run in dev/staging
-  let flowIds = link.flows.map(f => f.flowId);
   if (env === 'dev') {
     flowIds = flowIds.filter(id => !envRestrictions.isExcluded(id, 'dev'));
   } else if (env === 'staging') {
@@ -333,6 +339,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
 
   // ── Shapes ────────────────────────────────────────────────────────────────
   interface BugLinkEntry { bugKey: string; jiraStatus: string; jiraUrl: string; }
+  interface LinkedFlow   { flowId: string; flowName: string; }
   interface Blocker {
     type:         'no_link' | 'test_failed' | 'never_tested';
     ticketKey:    string;
@@ -342,6 +349,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     testSummary?: string;
     failedFlows?: FailedFlow[];
     bugLinks?:    BugLinkEntry[];
+    linkedFlows?: LinkedFlow[];  // all flows linked to this ticket (for selective re-run)
   }
 
   /** Resolve bug links for a ticket, enriched with current Jira status. */
@@ -393,15 +401,18 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
         continue;
       }
 
-      const result = latestResult(ticket, env);
+      const result      = latestResult(ticket, env);
+      const link        = flowLinks.getLink(ticket.key);
+      const linkedFlows = link?.flows.map(f => ({ flowId: f.flowId, flowName: f.flowName })) ?? [];
       if (!result) {
-        blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key) });
+        blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key), linkedFlows });
       } else if (!result.passed) {
         const blocker: Blocker = {
           type: 'test_failed', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl,
           testSummary: result.testSummary || undefined,
           failedFlows: result.failedFlows,
           bugLinks:    resolveBugLinks(ticket.key),
+          linkedFlows,
         };
         // Route to dismissed list if the team has marked it as not a blocker
         if (dismissedBlockers_.isDismissed(ticket.key, card)) {

@@ -122,11 +122,19 @@
     .tc-rerun.error   { opacity:1; color:var(--red);    border-color:var(--red);    cursor:default; }
 
     /* Re-run dialog */
-    #rerun-dialog { border:1px solid var(--border); border-radius:10px; background:var(--bg2); color:var(--text); padding:20px 24px; min-width:280px; box-shadow:0 8px 32px rgba(0,0,0,.5); }
+    #rerun-dialog { border:1px solid var(--border); border-radius:10px; background:var(--bg2); color:var(--text); padding:20px 24px; min-width:300px; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,.5); }
     #rerun-dialog::backdrop { background:rgba(0,0,0,.5); }
     .rerun-dialog-title { font-size:13px; font-weight:600; margin-bottom:4px; }
-    .rerun-dialog-sub { font-size:12px; color:var(--muted); margin-bottom:16px; }
+    .rerun-dialog-sub { font-size:12px; color:var(--muted); margin-bottom:10px; }
     .rerun-dialog-key { color:var(--indigo); font-family:var(--font-mono); }
+    .rerun-flow-section { margin-bottom:14px; }
+    .rerun-flow-list { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; max-height:160px; overflow-y:auto; }
+    .rerun-flow-item { display:flex; align-items:center; gap:7px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; }
+    .rerun-flow-item:hover { background:var(--bg3); }
+    .rerun-flow-item input[type=checkbox] { cursor:pointer; accent-color:var(--indigo); flex-shrink:0; }
+    .rerun-flow-name { flex:1; color:var(--text); }
+    .rerun-flow-failing { font-size:10px; color:var(--red); font-weight:600; flex-shrink:0; }
+    .rerun-flow-divider { border:none; border-top:1px solid var(--border); margin:10px 0; }
     .rerun-dialog-envs { display:flex; gap:8px; margin-bottom:14px; }
     .rerun-env-btn { flex:1; padding:8px 0; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
     .rerun-env-btn:hover { border-color:var(--indigo); color:var(--indigo); background:rgba(99,102,241,.1); }
@@ -544,7 +552,13 @@
 <!-- Re-run env picker dialog (shared across all ticket cards) -->
 <dialog id="rerun-dialog">
   <p class="rerun-dialog-title">Re-run flows for <span class="rerun-dialog-key" id="rerun-dialog-key"></span></p>
-  <p class="rerun-dialog-sub">Choose the environment to run linked flows in:</p>
+  <!-- Flow selection (shown only when ticket has multiple linked flows) -->
+  <div class="rerun-flow-section" id="rerun-flow-section" style="display:none">
+    <p class="rerun-dialog-sub">Select flows to run:</p>
+    <div class="rerun-flow-list" id="rerun-flow-list"></div>
+    <hr class="rerun-flow-divider">
+  </div>
+  <p class="rerun-dialog-sub">Choose the environment:</p>
   <div class="rerun-dialog-envs">
     <button class="rerun-env-btn" data-env="dev">Dev</button>
     <button class="rerun-env-btn" data-env="staging">Staging</button>
@@ -1362,13 +1376,63 @@ document.getElementById('filter-clear').addEventListener('click', () => {
 });
 
 // ── Re-run dialog ─────────────────────────────────────────────────────────────
-const rerunDialog   = document.getElementById('rerun-dialog');
+const rerunDialog    = document.getElementById('rerun-dialog');
 const rerunDialogKey = document.getElementById('rerun-dialog-key');
+const rerunFlowSect  = document.getElementById('rerun-flow-section');
+const rerunFlowList  = document.getElementById('rerun-flow-list');
 
-function openRerunDialog(key, dashBtn) {
+/**
+ * Open the re-run dialog.
+ * @param {string} key        - Jira ticket key
+ * @param {Element} [dashBtn] - Dashboard blocker re-run button (for state feedback)
+ * @param {object}  [opts]
+ * @param {Array}   [opts.allFlows]      - [{flowId, flowName}] all linked flows
+ * @param {string[]}[opts.failingFlowIds]- IDs of flows that are currently failing (pre-checked)
+ */
+function openRerunDialog(key, dashBtn, opts) {
   rerunDialogKey.textContent = key;
-  rerunDialog._currentKey = key;
-  rerunDialog._dashBtn    = dashBtn ?? null; // dashboard blocker button, if any
+  rerunDialog._currentKey   = key;
+  rerunDialog._dashBtn      = dashBtn ?? null;
+
+  const allFlows     = opts?.allFlows ?? [];
+  const failingSet   = new Set(opts?.failingFlowIds ?? []);
+  // Store for use in the submit handler
+  rerunDialog._allFlows = allFlows;
+
+  // Show flow checkboxes only when there are multiple linked flows
+  rerunFlowList.innerHTML = '';
+  if (allFlows.length > 1) {
+    rerunFlowSect.style.display = '';
+    for (const f of allFlows) {
+      const isFailing = failingSet.has(f.flowId);
+      const label = document.createElement('label');
+      label.className = 'rerun-flow-item';
+
+      const cb = document.createElement('input');
+      cb.type    = 'checkbox';
+      cb.value   = f.flowId;
+      // Pre-check: only failing flows when we know which failed; otherwise all
+      cb.checked = failingSet.size > 0 ? isFailing : true;
+      label.appendChild(cb);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className   = 'rerun-flow-name';
+      nameSpan.textContent = f.flowName;
+      label.appendChild(nameSpan);
+
+      if (isFailing) {
+        const badge = document.createElement('span');
+        badge.className   = 'rerun-flow-failing';
+        badge.textContent = '✗ failing';
+        label.appendChild(badge);
+      }
+
+      rerunFlowList.appendChild(label);
+    }
+  } else {
+    rerunFlowSect.style.display = 'none';
+  }
+
   rerunDialog.showModal();
 }
 
@@ -1383,9 +1447,16 @@ rerunDialog.addEventListener('click', e => {
 
 rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
-    const key     = rerunDialog._currentKey;
-    const env     = btn.dataset.env;
-    const dashBtn = rerunDialog._dashBtn;
+    const key      = rerunDialog._currentKey;
+    const env      = btn.dataset.env;
+    const dashBtn  = rerunDialog._dashBtn;
+    const allFlows = rerunDialog._allFlows ?? [];
+
+    // Collect checked flow IDs (only when the selection panel was shown)
+    const checkedIds = allFlows.length > 1
+      ? [...rerunFlowList.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value)
+      : [];
+
     rerunDialog.close();
 
     // Update activity-log card button (if the ticket card exists)
@@ -1402,11 +1473,17 @@ rerunDialog.querySelectorAll('.rerun-env-btn').forEach(btn => {
       dashBtn.className   = 'dash-blocker-rerun running';
     }
 
+    // Build request body — include flowIds only when a subset was selected
+    const body = { environment: env };
+    if (checkedIds.length && checkedIds.length < allFlows.length) {
+      body.flowIds = checkedIds;
+    }
+
     try {
       const res = await fetch(`/api/tickets/${encodeURIComponent(key)}/rerun`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ environment: env }),
+        body:    JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -2081,7 +2158,16 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         rerunBtn.textContent = '↺ Re-run';
         rerunBtn.addEventListener('click', e => {
           e.stopPropagation(); // don't toggle collapse on collapsible headers
-          openRerunDialog(b.ticketKey, rerunBtn);
+          // For test_failed blockers: match failing flow names → IDs so the dialog
+          // can pre-select only the broken flows.
+          const allFlows    = b.linkedFlows ?? [];
+          const failingNames = new Set(
+            (b.failedFlows ?? []).map(ff => ff.name.trim().toLowerCase())
+          );
+          const failingFlowIds = allFlows
+            .filter(lf => failingNames.has(lf.flowName.trim().toLowerCase()))
+            .map(lf => lf.flowId);
+          openRerunDialog(b.ticketKey, rerunBtn, { allFlows, failingFlowIds });
         });
         header.appendChild(rerunBtn);
       }
