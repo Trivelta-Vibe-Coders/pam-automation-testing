@@ -368,7 +368,16 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     const passingTickets:    SimpleTicket[] = [];
     const manualTestTickets: SimpleTicket[] = [];
 
+    // Keys of every ticket in this environment — used to suppress child bug cards
+    // when the parent is already visible in the same column.
+    const ticketKeySet = new Set(tickets.map(t => t.key));
+
     for (const ticket of tickets) {
+      // If this ticket is a bug fix linked to a parent that also appears in this
+      // same-env column, suppress its individual card — it's already surfaced as
+      // a chip inside the parent's blocker card.
+      const ownBugLink = bugLinksStore.getBugLink(ticket.key);
+      if (ownBugLink && ticketKeySet.has(ownBugLink.parentKey)) continue;
       const jiraUrl = `${config.jiraBaseUrl}/browse/${ticket.key}`;
       const title   = ticket.title || ticket.key;
       const status  = ticket.jiraStatus ?? '';
