@@ -402,6 +402,7 @@
     .dash-bug-link-btn:hover:not(:disabled) { border-color:var(--indigo); color:var(--indigo); }
     .dash-bug-link-btn:disabled { opacity:.4; cursor:not-allowed; }
     .dash-bug-error { font-size:10px; color:var(--red); margin-top:4px; }
+    .dash-bug-active { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid rgba(45,49,72,.5); }
   </style>
 </head>
 <body>
@@ -794,6 +795,14 @@ function jiraStatusClass(status) {
   if (/in progress|in review|in qa/i.test(s))         return 's-progress';
   if (/blocked|on hold/i.test(s))                     return 's-blocked';
   return '';
+}
+
+/** Map a Jira status to an Autosana environment — mirrors backend statusToEnvironment(). */
+function jiraStatusToEnv(status) {
+  const s = (status || '').toLowerCase();
+  if (/^dev$/.test(s) || /in dev/i.test(s))         return 'dev';
+  if (/^(stg|staging|stage)$/.test(s))               return 'staging';
+  return null;
 }
 
 /** Update the Jira status badge on a card entry and re-sort the list. */
@@ -2112,6 +2121,57 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         const body = document.createElement('div');
         body.className = 'dash-blocker-body';
 
+        // Helper: build a removable bug chip element
+        function makeBugChip(bl) {
+          const chip = document.createElement('div');
+          chip.className = 'dash-bug-chip';
+
+          const keyLink = document.createElement('a');
+          keyLink.className = 'dash-bug-chip-key';
+          keyLink.href = bl.jiraUrl;
+          keyLink.target = '_blank';
+          keyLink.rel = 'noopener';
+          keyLink.textContent = bl.bugKey;
+          keyLink.addEventListener('click', e => e.stopPropagation());
+          chip.appendChild(keyLink);
+
+          if (bl.jiraStatus) {
+            const statusEl = document.createElement('span');
+            statusEl.className = 'dash-bug-chip-status ' + jiraStatusClass(bl.jiraStatus);
+            statusEl.textContent = bl.jiraStatus;
+            chip.appendChild(statusEl);
+          }
+
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'dash-bug-chip-remove';
+          removeBtn.textContent = '✕';
+          removeBtn.title = 'Remove bug link';
+          removeBtn.addEventListener('click', async e => {
+            e.stopPropagation();
+            removeBtn.disabled = true;
+            try {
+              await fetch(`/api/bug-links/${encodeURIComponent(bl.bugKey)}`, { method: 'DELETE' });
+              loadDashboard();
+            } catch { removeBtn.disabled = false; }
+          });
+          chip.appendChild(removeBtn);
+          return chip;
+        }
+
+        // Split bug links: same env as parent (shown above test results) vs others (bottom section)
+        const parentEnv   = jiraStatusToEnv(b.jiraStatus);
+        const bugLinks    = b.bugLinks ?? [];
+        const sameEnvBugs = bugLinks.filter(bl => parentEnv && jiraStatusToEnv(bl.jiraStatus) === parentEnv);
+        const otherBugs   = bugLinks.filter(bl => !(parentEnv && jiraStatusToEnv(bl.jiraStatus) === parentEnv));
+
+        // ── Same-env bug chips — above AI summary / flow results ───────────
+        if (sameEnvBugs.length) {
+          const activeRow = document.createElement('div');
+          activeRow.className = 'dash-bug-active';
+          for (const bl of sameEnvBugs) activeRow.appendChild(makeBugChip(bl));
+          body.appendChild(activeRow);
+        }
+
         // AI summary (test_failed only)
         if (b.type === 'test_failed' && b.testSummary) {
           const sumEl = document.createElement('p');
@@ -2160,7 +2220,7 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
           body.appendChild(flowList);
         }
 
-        // ── Bug tickets section ─────────────────────────────────────────────
+        // ── Bug tickets section (management: non-same-env chips + add form) ─
         const bugSection = document.createElement('div');
         bugSection.className = 'dash-bug-section';
 
@@ -2169,44 +2229,10 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         bugLabel.textContent = 'Bug Tickets';
         bugSection.appendChild(bugLabel);
 
-        // Render existing linked bug tickets as chips
+        // Non-same-env chips (same-env ones already shown above test results)
         const bugChips = document.createElement('div');
         bugChips.className = 'dash-bug-chips';
-        for (const bl of (b.bugLinks ?? [])) {
-          const chip = document.createElement('div');
-          chip.className = 'dash-bug-chip';
-
-          const keyLink = document.createElement('a');
-          keyLink.className = 'dash-bug-chip-key';
-          keyLink.href = bl.jiraUrl;
-          keyLink.target = '_blank';
-          keyLink.rel = 'noopener';
-          keyLink.textContent = bl.bugKey;
-          keyLink.addEventListener('click', e => e.stopPropagation());
-          chip.appendChild(keyLink);
-
-          if (bl.jiraStatus) {
-            const statusEl = document.createElement('span');
-            statusEl.className = 'dash-bug-chip-status ' + jiraStatusClass(bl.jiraStatus);
-            statusEl.textContent = bl.jiraStatus;
-            chip.appendChild(statusEl);
-          }
-
-          const removeBtn = document.createElement('button');
-          removeBtn.className = 'dash-bug-chip-remove';
-          removeBtn.textContent = '✕';
-          removeBtn.title = 'Remove bug link';
-          removeBtn.addEventListener('click', async e => {
-            e.stopPropagation();
-            removeBtn.disabled = true;
-            try {
-              await fetch(`/api/bug-links/${encodeURIComponent(bl.bugKey)}`, { method: 'DELETE' });
-              loadDashboard();
-            } catch { removeBtn.disabled = false; }
-          });
-          chip.appendChild(removeBtn);
-          bugChips.appendChild(chip);
-        }
+        for (const bl of otherBugs) bugChips.appendChild(makeBugChip(bl));
         bugSection.appendChild(bugChips);
 
         // Add bug link input row
