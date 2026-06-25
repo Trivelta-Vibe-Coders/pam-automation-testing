@@ -12,7 +12,8 @@
 import { getRunStatus } from './autosana';
 import { dispatchSuiteCompleted, FlowRunResult } from './github';
 import { summariseTestResults } from './ai-summarizer';
-import * as flowLastRun from './flow-last-run';
+import * as flowLastRun     from './flow-last-run';
+import * as nightlyReports  from './nightly-reports';
 import * as logger from '../logger';
 import { config } from '../config';
 
@@ -194,11 +195,15 @@ export function startPolling(params: {
 
       // ── Log structured results to Railway activity log ────────────────────────
       if (allResults.length) {
-        const logFn = totalFailed === 0 ? logger.success : logger.warn;
-        logFn(
+        const logFn    = totalFailed === 0 ? logger.success : logger.warn;
+        const resultEv = logFn(
           testSummary ?? `Test results: ${totalPassed} passed, ${totalFailed} failed`,
           { triggeredBy, batchId, environment, testResults: allResults, testSummary },
         );
+        // Persist nightly run results to the dedicated nightly-reports store
+        if (triggeredBy === 'nightly') {
+          nightlyReports.addReport(resultEv);
+        }
       }
 
       return;  // done — exit the polling loop

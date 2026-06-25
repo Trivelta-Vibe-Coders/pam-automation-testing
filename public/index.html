@@ -305,6 +305,44 @@
 
     ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 
+    /* ── Nightly Reports ── */
+    #panel-nightly { flex-direction:column; overflow-y:auto; padding:20px; gap:12px; }
+    .nightly-loading { padding:32px 16px; color:var(--muted); font-size:12px; text-align:center; }
+    .nightly-empty   { padding:48px 16px; color:var(--muted); font-size:12px; text-align:center; }
+    .nr-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .nr-header { display:flex; align-items:center; gap:10px; padding:12px 16px; cursor:pointer; user-select:none; transition:background .1s; }
+    .nr-header:hover { background:var(--bg3); }
+    .nr-date  { font-size:13px; font-weight:600; flex:1; }
+    .nr-env   { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:2px 8px; border-radius:999px; background:rgba(99,102,241,.15); color:var(--indigo); flex-shrink:0; }
+    .nr-counts { display:flex; gap:12px; font-size:12px; font-weight:700; flex-shrink:0; }
+    .nr-passed { color:var(--green); }
+    .nr-failed { color:var(--red); }
+    .nr-all-pass .nr-failed { display:none; }
+    .nr-chevron { color:var(--muted); font-size:12px; transition:transform .2s; flex-shrink:0; }
+    .nr-card.collapsed .nr-chevron { transform:rotate(-90deg); }
+    .nr-body { padding:14px 16px; border-top:1px solid var(--border); }
+    .nr-card.collapsed .nr-body { display:none; }
+    .nr-summary { font-size:12px; color:var(--muted); font-style:italic; line-height:1.55; margin-bottom:14px; }
+    /* Suite sections */
+    .nr-suite { margin-bottom:16px; }
+    .nr-suite:last-child { margin-bottom:0; }
+    .nr-suite-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid rgba(45,49,72,.4); }
+    .nr-suite-name { font-size:12px; font-weight:700; flex:1; }
+    .nr-suite-link { font-size:10px; color:var(--indigo); text-decoration:none; flex-shrink:0; }
+    .nr-suite-link:hover { text-decoration:underline; }
+    .nr-suite-counts { font-size:10px; font-weight:600; flex-shrink:0; }
+    .nr-suite-counts.pass { color:var(--green); }
+    .nr-suite-counts.fail { color:var(--red); }
+    .nr-suite-counts.mixed { color:var(--yellow); }
+    /* Flow rows */
+    .nr-flow { padding:2px 0; }
+    .nr-flow-row { display:flex; align-items:baseline; gap:6px; font-size:11px; }
+    .nr-flow-icon { font-weight:700; flex-shrink:0; line-height:1.5; }
+    .nr-flow-icon.pass { color:var(--green); }
+    .nr-flow-icon.fail { color:var(--red); }
+    .nr-flow-name { flex:1; color:var(--text); line-height:1.5; }
+    .nr-flow-reason { font-size:10px; color:var(--muted); font-style:italic; margin-top:2px; padding-left:18px; line-height:1.45; }
+
     /* ── Dashboard ── */
     #panel-dashboard { flex-direction:column; overflow-y:auto; padding:28px; gap:24px; align-items:flex-start; }
     .dash-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:20px; width:100%; align-items:stretch; }
@@ -433,6 +471,7 @@
 
 <div class="tab-bar">
   <div class="tab active" data-tab="dashboard">Dashboard</div>
+  <div class="tab" data-tab="nightly">Nightly Reports</div>
   <div class="tab" data-tab="log">Activity Log</div>
   <div class="tab" data-tab="runner">Test Runner</div>
 </div>
@@ -558,6 +597,11 @@
   </div>
 </div>
 
+<!-- Nightly Reports -->
+<div class="panel" id="panel-nightly">
+  <div class="nightly-loading" id="nightly-placeholder">Click the Nightly Reports tab to load.</div>
+</div>
+
 <!-- Re-run env picker dialog (shared across all ticket cards) -->
 <dialog id="rerun-dialog">
   <p class="rerun-dialog-title">Re-run flows for <span class="rerun-dialog-key" id="rerun-dialog-key"></span></p>
@@ -638,6 +682,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab==='runner'    && !suitesLoaded) loadSuites();
     if (tab.dataset.tab==='dashboard') loadDashboard();
+    if (tab.dataset.tab==='nightly')   loadNightlyReports();
   });
 });
 
@@ -2145,6 +2190,110 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
   await fetch('/api/refresh-flows', { method: 'POST' });
   loadSuites();
 });
+
+// ── Nightly Reports ───────────────────────────────────────────────────────────
+
+function formatNightlyDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-AU', { day:'2-digit', month:'short', year:'numeric' })
+    + ' · ' + d.toLocaleTimeString('en-US', { hour12:false, hour:'2-digit', minute:'2-digit' })
+    + ' UTC';
+}
+
+function renderNightlyReport(report) {
+  const card = document.createElement('div');
+  card.className = 'nr-card collapsed'; // default collapsed; first is opened by caller
+
+  const allPass = report.totalFailed === 0;
+  const hdr = document.createElement('div');
+  hdr.className = 'nr-header';
+  hdr.innerHTML =
+    `<span class="nr-date">${esc(formatNightlyDate(report.timestamp))}</span>` +
+    `<span class="nr-env">${esc(report.environment.toUpperCase())}</span>` +
+    `<span class="nr-counts${allPass ? ' nr-all-pass' : ''}">` +
+      `<span class="nr-passed">✓ ${report.totalPassed}</span>` +
+      `<span class="nr-failed">✗ ${report.totalFailed}</span>` +
+    `</span>` +
+    `<span class="nr-chevron">▾</span>`;
+  card.appendChild(hdr);
+  hdr.addEventListener('click', () => card.classList.toggle('collapsed'));
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'nr-body';
+
+  // AI summary
+  if (report.testSummary) {
+    const sumEl = document.createElement('p');
+    sumEl.className = 'nr-summary';
+    sumEl.textContent = report.testSummary;
+    body.appendChild(sumEl);
+  }
+
+  // Suite sections
+  for (const suite of report.suites) {
+    const suiteEl = document.createElement('div');
+    suiteEl.className = 'nr-suite';
+
+    const suitePassed  = suite.passed;
+    const suiteFailed  = suite.failed;
+    const suiteAllPass = suiteFailed === 0;
+    const countsCls    = suiteAllPass ? 'pass' : suitePassed === 0 ? 'fail' : 'mixed';
+    const countsStr    = suiteAllPass
+      ? `✓ ${suitePassed} passed`
+      : `✓ ${suitePassed}  ✗ ${suiteFailed}`;
+
+    const suiteHdr = document.createElement('div');
+    suiteHdr.className = 'nr-suite-header';
+    suiteHdr.innerHTML =
+      `<span class="nr-suite-name">${esc(suite.suiteName)}</span>` +
+      (suite.runUrl ? `<a class="nr-suite-link" href="${esc(suite.runUrl)}" target="_blank" rel="noopener">↗ View run</a>` : '') +
+      `<span class="nr-suite-counts ${countsCls}">${esc(countsStr)}</span>`;
+    suiteEl.appendChild(suiteHdr);
+
+    // Flow rows
+    const flowsEl = document.createElement('div');
+    for (const flow of suite.flows) {
+      const isPassed = flow.status === 'passed';
+      const flowDiv  = document.createElement('div');
+      flowDiv.className = 'nr-flow';
+      flowDiv.innerHTML =
+        `<div class="nr-flow-row">` +
+          `<span class="nr-flow-icon ${isPassed ? 'pass' : 'fail'}">${isPassed ? '✓' : '✗'}</span>` +
+          `<span class="nr-flow-name">${esc(flow.name)}</span>` +
+        `</div>` +
+        (!isPassed && flow.summary
+          ? `<div class="nr-flow-reason">${esc(flow.summary)}</div>`
+          : '');
+      flowsEl.appendChild(flowDiv);
+    }
+    suiteEl.appendChild(flowsEl);
+    body.appendChild(suiteEl);
+  }
+
+  card.appendChild(body);
+  return card;
+}
+
+async function loadNightlyReports() {
+  const panel = document.getElementById('panel-nightly');
+  panel.innerHTML = '<div class="nightly-loading">Loading nightly reports…</div>';
+  try {
+    const reports = await fetch('/api/nightly-reports').then(r => r.json());
+    panel.innerHTML = '';
+    if (!reports.length) {
+      panel.innerHTML = '<div class="nightly-empty">No nightly runs recorded yet.<br/>Reports will appear here after the first nightly run completes.</div>';
+      return;
+    }
+    reports.forEach((report, i) => {
+      const card = renderNightlyReport(report);
+      if (i === 0) card.classList.remove('collapsed'); // expand most recent
+      panel.appendChild(card);
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="nightly-loading" style="color:var(--red)">Failed to load: ${esc(String(err))}</div>`;
+  }
+}
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
