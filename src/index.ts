@@ -16,6 +16,7 @@ import { config } from './config';
 import * as logger from './logger';
 import { webhookRouter } from './routes/webhook';
 import { runnerRouter } from './routes/runner';
+import { slackActionRouter } from './routes/slack-action';
 import * as flowLinks   from './services/flow-links';
 import * as ticketStore from './services/ticket-store';
 import { triggerFlows, TriggerEnvironment } from './services/autosana-trigger';
@@ -518,6 +519,9 @@ app.use('/webhook/jira', webhookRouter);
 
 // ── Runner routes ─────────────────────────────────────────────────────────────
 app.use('/api', runnerRouter);
+
+// ── Slack interactive action callbacks (Create Bug button) ────────────────────
+app.use('/slack-action', slackActionRouter);
 
 // ── 404 fallback → serve index.html (SPA-style) ───────────────────────────────
 app.use((_req: Request, res: Response) => {

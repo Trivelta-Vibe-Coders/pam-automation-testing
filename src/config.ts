@@ -46,7 +46,8 @@ export const config = {
   dataDir: optional_env('DATA_DIR', '/app/data'),
 
   // Slack
-  slackWebhookUrl: optional_env('SLACK_WEBHOOK_URL'),  // also used by pam_report.py
+  slackWebhookUrl:    optional_env('SLACK_WEBHOOK_URL'),    // also used by pam_report.py
+  slackSigningSecret: optional_env('SLACK_SIGNING_SECRET'), // for verifying interactive button callbacks
 
   // GitHub Actions dispatch (for post-run Slack reports)
   githubToken: optional_env('GITHUB_DISPATCH_TOKEN'),  // required for Slack results
