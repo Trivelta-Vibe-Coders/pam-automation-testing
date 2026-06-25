@@ -1013,6 +1013,7 @@ function getOrCreateCard(key, isDone) {
         });
         noTestBtn.classList.toggle('active', nowActive);
         noTestBtn.title = nowActive ? 'Click to re-enable testing' : 'Mark as no test needed';
+        if (nowActive && filterUnlinked) applyFilters();
       } catch {}
     });
   }
