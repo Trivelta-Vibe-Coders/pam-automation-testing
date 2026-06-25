@@ -23,20 +23,6 @@ export const config = {
     production: optional_env('AUTOSANA_APP_ID_PROD',    'rebet-prod-pam'),
   } as Record<string, string>,
 
-  // PAM suite IDs
-  suites: {
-    'PAM Affiliates':          optional_env('SUITE_ID_AFFILIATES',         '14fb0e17-faf3-487e-ae18-9ca01dde84c5'),
-    'PAM Users Tab':           optional_env('SUITE_ID_USERS_TAB',          '615d740d-bb78-417b-8eaa-052f82dffe0d'),
-    'PAM Casino Reports':      optional_env('SUITE_ID_CASINO_REPORTS',     '78b9916f-2d93-4af3-9739-98a5bae1d57a'),
-    'PAM Agent Audit Log':     optional_env('SUITE_ID_AGENT_AUDIT_LOG',    'd489f392-5d20-4689-87ff-e8b2e0b7f0e4'),
-    'PAM KPIs':                optional_env('SUITE_ID_KPIS',               'd02667b6-39a8-42c1-a6f3-4c7b96394a48'),
-    'PAM Staff and Permissions':optional_env('SUITE_ID_STAFF_PERMISSIONS', '76fcec83-bce9-4ce5-9c10-a37096cacf2c'),
-    'PAM Withdrawal Review':   optional_env('SUITE_ID_WITHDRAWAL_REVIEW',  '2ebb9619-c286-465c-8f8d-64ca4978c219'),
-    'PAM UTM Reports':         optional_env('SUITE_ID_UTM_REPORTS',        '642f5b65-25a0-4c68-9042-889131d03a90'),
-    'PAM Sportsbook Reports':  optional_env('SUITE_ID_SPORTSBOOK_REPORTS', 'd4e1ce94-e5fc-4787-8b5f-7599bcbefde1'),
-    'PAM Payments':            optional_env('SUITE_ID_PAYMENTS',           'cd009d2a-3e7c-4a16-a694-39bfad7708b6'),
-  } as Record<string, string>,
-
   // Jira status names that trigger test runs
   jiraStatusDev:  optional_env('JIRA_STATUS_DEV',  'Dev'),
   jiraStatusStg:  optional_env('JIRA_STATUS_STG',  'Stg'),

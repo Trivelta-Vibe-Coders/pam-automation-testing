@@ -27,6 +27,7 @@ import * as ticketStore from '../services/ticket-store';
 import * as jiraClient from '../services/jira';
 import { extractSprintName, isSprintActive, extractEpicRef } from '../services/jira-fields';
 import { config } from '../config';
+import * as suiteRegistry from '../services/suite-registry';
 
 // ── Dedup guard ───────────────────────────────────────────────────────────────
 // Jira re-delivers issue_created webhooks when a connection drops mid-flight.
@@ -147,8 +148,7 @@ export async function handleTicketCreated(issue: JiraIssue): Promise<void> {
       matchFound         = true;
       existingFlowName   = bestMatch.flow.name;
       existingFlowScore  = bestMatch.score;
-      suiteName          = Object.entries(config.suites)
-        .find(([, id]) => id === bestMatch.flow.suite_id)?.[0] ?? 'Unknown Suite';
+      suiteName          = suiteRegistry.getSuiteName(bestMatch.flow.suite_id) ?? 'Unknown Suite';
 
       logger.success(
         `Instructions drafted for existing flow "${existingFlowName}" — recommendation pending`,

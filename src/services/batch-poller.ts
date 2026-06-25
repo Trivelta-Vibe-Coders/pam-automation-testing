@@ -14,8 +14,8 @@ import { dispatchSuiteCompleted, FlowRunResult } from './github';
 import { summariseTestResults } from './ai-summarizer';
 import * as flowLastRun     from './flow-last-run';
 import * as nightlyReports  from './nightly-reports';
+import * as suiteRegistry   from './suite-registry';
 import * as logger from '../logger';
-import { config } from '../config';
 
 const POLL_INTERVAL_MS = 60_000;   // 60 seconds
 const MAX_POLLS        = 90;        // 90 minutes max
@@ -56,7 +56,7 @@ function normaliseStatus(raw: string): string {
 }
 
 function suiteIdForName(name: string): string | undefined {
-  return config.suites[name as keyof typeof config.suites];
+  return suiteRegistry.getSuiteId(name);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────

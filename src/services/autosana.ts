@@ -56,9 +56,10 @@ export async function listFlows(suiteId: string): Promise<AutosanaFlow[]> {
 }
 
 export async function listAllPamFlows(): Promise<AutosanaFlow[]> {
+  const { getAllSuiteIds } = await import('./suite-registry');
   const allFlows: AutosanaFlow[] = [];
   await Promise.all(
-    Object.entries(config.suites).map(async ([, suiteId]) => {
+    getAllSuiteIds().map(async suiteId => {
       try {
         const flows = await listFlows(suiteId);
         allFlows.push(...flows);

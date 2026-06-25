@@ -8,8 +8,8 @@ import { Router, Request, Response } from 'express';
 import { listFlows } from '../services/autosana';
 import { triggerFlows, TriggerEnvironment } from '../services/autosana-trigger';
 import { startPolling } from '../services/batch-poller';
+import * as suiteRegistry from '../services/suite-registry';
 import * as logger from '../logger';
-import { config } from '../config';
 
 export const runnerRouter = Router();
 
@@ -34,7 +34,7 @@ async function getSuitesWithFlows(): Promise<SuiteWithFlows[]> {
   if (cache && Date.now() < cacheExpiry) return cache;
 
   const results = await Promise.all(
-    Object.entries(config.suites).map(async ([suiteName, suiteId]) => {
+    suiteRegistry.getAllSuites().map(async ({ name: suiteName, id: suiteId }) => {
       try {
         const flows = await listFlows(suiteId);
         return {
@@ -49,9 +49,7 @@ async function getSuitesWithFlows(): Promise<SuiteWithFlows[]> {
     }),
   );
 
-  // Preserve the canonical suite order
-  const order = Object.keys(config.suites);
-  results.sort((a, b) => order.indexOf(a.suite_name) - order.indexOf(b.suite_name));
+  results.sort((a, b) => a.suite_name.localeCompare(b.suite_name));
 
   cache      = results;
   cacheExpiry = Date.now() + CACHE_TTL_MS;

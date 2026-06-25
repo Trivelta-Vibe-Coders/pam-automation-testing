@@ -4,6 +4,7 @@
  */
 import { config } from '../config';
 import { triggerRun, listFlows } from './autosana';
+import * as suiteRegistry from './suite-registry';
 import * as envRestrictions from './env-restrictions';
 import * as logger from '../logger';
 
@@ -68,7 +69,7 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
   }
 
   // ── Case 2: suite-level triggers (nightly, full regression) ──────────────────
-  const suiteIds = opts.suiteIds ?? Object.values(config.suites);
+  const suiteIds = opts.suiteIds ?? suiteRegistry.getAllSuiteIds();
 
   if (excluded.size === 0) {
     // No exclusions — send suite_ids directly (Autosana groups results by suite name)

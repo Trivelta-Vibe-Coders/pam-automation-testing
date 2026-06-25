@@ -29,6 +29,7 @@ import { startPolling } from './services/batch-poller';
 import * as bugLinksStore   from './services/bug-links';
 import * as flowLastRun    from './services/flow-last-run';
 import * as nightlyReports from './services/nightly-reports';
+import * as suiteRegistry  from './services/suite-registry';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -113,7 +114,7 @@ app.post('/api/links', async (req: Request, res: Response) => {
   }
   try {
     const flow      = await getFlow(String(flowId));
-    const suiteName = Object.entries(config.suites).find(([, id]) => id === flow.suite_id)?.[0] ?? '';
+    const suiteName = suiteRegistry.getSuiteName(flow.suite_id) ?? '';
     const key       = String(jiraKey).toUpperCase();
     const link      = flowLinks.addFlow(key, { flowId: flow.id, flowName: flow.name, suiteId: flow.suite_id });
     logger.success(`Flow link added: ${key} → "${flow.name}"`, { jiraKey: key, flowId: flow.id });
@@ -536,6 +537,9 @@ app.listen(config.port, '0.0.0.0', () => {
     jiraProject: config.jiraProject,
     threshold:   config.matchThreshold,
   });
+
+  // Load all suites from the Autosana workspace (non-blocking — retries on next request if it fails)
+  suiteRegistry.refresh().catch(err => console.warn('[suite-registry] Initial fetch failed:', err));
 
   // Schedule nightly full regression against staging
   scheduleNightlyRun();
