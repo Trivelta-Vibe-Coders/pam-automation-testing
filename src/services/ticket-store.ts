@@ -35,6 +35,9 @@ export interface TicketRecord {
 
 const store = new Map<string, TicketRecord>();
 
+/** Maximum events to retain per ticket — oldest are trimmed when exceeded. */
+const MAX_EVENTS_PER_TICKET = 500;
+
 function levelPriority(l: ActivityLevel): number {
   return ({ error: 3, warning: 2, success: 1, info: 0 } as Record<string, number>)[l] ?? 0;
 }
@@ -107,6 +110,10 @@ function loadFromDisk(): void {
     for (const rec of raw) {
       const before = rec.events.length;
       rec.events = deduplicateEvents(rec.events);
+      // Apply per-ticket cap after dedup — keep most recent events
+      if (rec.events.length > MAX_EVENTS_PER_TICKET) {
+        rec.events = rec.events.slice(-MAX_EVENTS_PER_TICKET);
+      }
       dedupCount += before - rec.events.length;
       store.set(rec.key, rec);
     }
@@ -200,6 +207,10 @@ export function addEvent(key: string, event: ActivityEvent): void {
   }
 
   rec.events.push(event);
+  // Enforce per-ticket cap — drop oldest events when exceeded
+  if (rec.events.length > MAX_EVENTS_PER_TICKET) {
+    rec.events = rec.events.slice(-MAX_EVENTS_PER_TICKET);
+  }
   rec.updatedAt = now;
 
   saveToDisk();

@@ -26,7 +26,8 @@ import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
 import * as dismissedBlockers_ from './services/dismissed-blockers';
 import { startPolling } from './services/batch-poller';
-import * as bugLinksStore from './services/bug-links';
+import * as bugLinksStore  from './services/bug-links';
+import * as flowLastRun   from './services/flow-last-run';
 
 // ── Global error safety net (logs crashes to Railway deploy logs) ─────────────
 process.on('uncaughtException', (err) => {
@@ -470,6 +471,10 @@ app.get('/api/bug-links', (_req: Request, res: Response) => {
   res.json(bugLinksStore.getAllBugLinks());
 });
 
+app.get('/api/flow-last-runs', (_req: Request, res: Response) => {
+  res.json(flowLastRun.getAllRuns());
+});
+
 app.post('/api/bug-links', (req: Request, res: Response) => {
   const { bugKey, parentKey } = req.body ?? {};
   if (!bugKey || !parentKey) {
@@ -532,6 +537,10 @@ app.listen(config.port, '0.0.0.0', () => {
 
   // Backfill sprint/epic for tickets that pre-date this feature (non-blocking)
   backfillTicketMeta().catch(() => {});
+
+  // Backfill per-flow last-run data from stored ticket events (one-time on each
+  // startup; idempotent — only records newer results than what's already on disk)
+  flowLastRun.backfillFromTicketEvents(ticketStore.getAllTickets);
 });
 
 export default app;

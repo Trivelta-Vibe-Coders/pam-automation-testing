@@ -270,6 +270,15 @@
     .flow-check { width:15px; height:15px; cursor:pointer; accent-color:var(--indigo); flex-shrink:0; margin-left:26px; }
     .flow-name { font-size:12px; color:var(--muted); flex:1; line-height:1.4; }
     .flow-row.flow-selected .flow-name { color:var(--text); }
+    /* Per-flow last-run env columns */
+    .flow-env-col { display:flex; flex-direction:column; align-items:center; gap:1px; min-width:52px; flex-shrink:0; }
+    .flow-env-col[data-run-url] { cursor:pointer; }
+    .flow-env-col[data-run-url]:hover .flow-env-val { text-decoration:underline; }
+    .flow-env-lbl  { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); line-height:1; }
+    .flow-env-val  { font-size:11px; font-weight:600; line-height:1.2; color:var(--muted); }
+    .flow-env-val.pass { color:var(--green); }
+    .flow-env-val.fail { color:var(--red); }
+    .flow-env-time { font-size:9px; color:var(--muted); line-height:1; }
     .suite-loading { padding:16px; color:var(--muted); font-size:12px; text-align:center; }
     .flow-restrict { background:none; border:1px solid var(--border); border-radius:4px; color:var(--muted); font-size:10px; font-weight:600; padding:2px 6px; cursor:pointer; flex-shrink:0; transition:all .15s; white-space:nowrap; letter-spacing:.3px; }
     .flow-restrict:hover { border-color:var(--yellow); color:var(--yellow); }
@@ -570,12 +579,28 @@
 <script>
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/** Human-readable relative time (e.g. "2h ago", "3d ago"). */
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s  = ms / 1000;
+  if (s < 90)       return 'just now';
+  const m = s / 60;
+  if (m < 60)       return `${Math.round(m)}m ago`;
+  const h = m / 60;
+  if (h < 24)       return `${Math.round(h)}h ago`;
+  const d = h / 24;
+  if (d < 30)       return `${Math.round(d)}d ago`;
+  return `${Math.round(d / 30)}mo ago`;
+}
 function fmtTime(iso) { const d=new Date(iso); return d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let totalCount=0, successCount=0, warningCount=0, errorCount=0;
 const selectedSuites = new Map(); // suiteId  → suiteName
 const selectedFlows  = new Map(); // flowId   → { flowId, flowName, suiteName }
+// Per-flow last-run results: key `${suiteName}||${flowName}||${env}` → {passed, timestamp, runUrl?}
+const flowLastRuns   = new Map();
 let currentEnv  = 'staging';
 let suitesLoaded = false;
 const devExcluded = new Set(); // flow IDs excluded from dev
@@ -1827,6 +1852,24 @@ function suiteRestrictClass(state) {
   return state === 2 ? ' prod-only' : state === 1 ? ' restricted' : state === -1 ? ' mixed' : '';
 }
 
+/** Render one env column cell for a flow row. */
+function flowEnvCell(suiteName, flowName, env) {
+  const lbl = env === 'staging' ? 'STG' : 'DEV';
+  const run = flowLastRuns.get(`${suiteName}||${flowName}||${env}`);
+  if (!run) {
+    return `<div class="flow-env-col"><span class="flow-env-lbl">${lbl}</span><span class="flow-env-val">—</span></div>`;
+  }
+  const cls  = run.passed ? 'pass' : 'fail';
+  const icon = run.passed ? '✓' : '✗';
+  const time = timeAgo(run.timestamp);
+  const urlAttr = run.runUrl ? ` data-run-url="${esc(run.runUrl)}"` : '';
+  return `<div class="flow-env-col"${urlAttr} title="${lbl}: ${esc(time)}">\
+<span class="flow-env-lbl">${lbl}</span>\
+<span class="flow-env-val ${cls}">${icon}</span>\
+<span class="flow-env-time">${esc(time)}</span>\
+</div>`;
+}
+
 function renderSuites(data) {
   suitesLoaded = true;
   const container = document.getElementById('suite-list');
@@ -1857,6 +1900,8 @@ function renderSuites(data) {
                   data-suite="${esc(suite.suite_id)}"
                   data-suite-name="${esc(suite.suite_name)}" />
                 <span class="flow-name">${esc(f.name)}</span>
+                ${flowEnvCell(suite.suite_name, f.name, 'dev')}
+                ${flowEnvCell(suite.suite_name, f.name, 'staging')}
                 <button class="flow-restrict${devExcluded.has(f.id) && stgExcluded.has(f.id) ? ' prod-only' : devExcluded.has(f.id) ? ' restricted' : ''}"
                   data-flow-id="${esc(f.id)}"
                 >${devExcluded.has(f.id) && stgExcluded.has(f.id) ? 'Prod only' : devExcluded.has(f.id) ? 'Stg only' : 'All envs'}</button>
@@ -1988,6 +2033,14 @@ function renderSuites(data) {
       });
     });
 
+    // Env result columns → open Autosana run URL if available
+    card.querySelectorAll('.flow-env-col[data-run-url]').forEach(col => {
+      col.addEventListener('click', e => {
+        e.stopPropagation();
+        window.open(col.dataset.runUrl, '_blank', 'noopener');
+      });
+    });
+
     // Individual flow checkbox → select that flow; clear suite-level selections
     card.querySelectorAll('.flow-check').forEach(cb => {
       cb.addEventListener('change', e => {
@@ -2016,13 +2069,18 @@ async function loadSuites() {
   document.getElementById('suite-list').innerHTML =
     '<div class="suite-loading">Loading suites and flows from Autosana…</div>';
   try {
-    const [data, restrictions] = await Promise.all([
+    const [data, restrictions, lastRuns] = await Promise.all([
       fetch('/api/suites-with-flows').then(r => r.json()),
       fetch('/api/env-restrictions').then(r => r.json()),
+      fetch('/api/flow-last-runs').then(r => r.json()),
     ]);
     devExcluded.clear(); stgExcluded.clear();
     for (const id of (restrictions.dev     ?? [])) devExcluded.add(id);
     for (const id of (restrictions.staging ?? [])) stgExcluded.add(id);
+    flowLastRuns.clear();
+    for (const r of (lastRuns ?? [])) {
+      flowLastRuns.set(`${r.suiteName}||${r.flowName}||${r.environment}`, r);
+    }
     renderSuites(data);
   } catch (err) {
     document.getElementById('suite-list').innerHTML =

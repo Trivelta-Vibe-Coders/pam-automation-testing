@@ -12,6 +12,7 @@
 import { getRunStatus } from './autosana';
 import { dispatchSuiteCompleted, FlowRunResult } from './github';
 import { summariseTestResults } from './ai-summarizer';
+import * as flowLastRun from './flow-last-run';
 import * as logger from '../logger';
 import { config } from '../config';
 
@@ -175,6 +176,19 @@ export function startPolling(params: {
         logger.info(
           `${dispatched} suite(s) dispatched to GitHub Actions — Slack reports incoming`,
           { batchId, dispatched },
+        );
+      }
+
+      // ── Update per-flow last-run store ───────────────────────────────────────
+      if (allResults.length) {
+        flowLastRun.updateFlowRuns(
+          allResults.map(r => ({
+            suiteName:      r.suiteName,
+            runUrl:         r.runUrl,
+            allFlowDetails: r.allFlowDetails,
+          })),
+          environment,
+          new Date().toISOString(),
         );
       }
 
