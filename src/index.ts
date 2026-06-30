@@ -554,6 +554,7 @@ app.listen(config.port, '0.0.0.0', () => {
   // Backfill per-flow last-run data from stored ticket events (one-time on each
   // startup; idempotent — only records newer results than what's already on disk)
   flowLastRun.backfillFromTicketEvents(ticketStore.getAllTickets);
+  flowLastRun.backfillFromActivityEvents(logger.getHistory());
 
   // Backfill nightly report history from the activity log ring buffer
   nightlyReports.backfillFromEvents(logger.getHistory());

@@ -147,6 +147,57 @@ export function backfillFromTicketEvents(
   }
 }
 
+/**
+ * Back-fill from the activity log ring buffer.
+ * Catches nightly and manual Test Runner runs, which are logged to the
+ * activity log rather than to individual ticket events.
+ */
+export function backfillFromActivityEvents(
+  historyEvents: Array<{
+    timestamp: string;
+    details?:  Record<string, unknown>;
+  }>,
+): void {
+  let count   = 0;
+  let changed = false;
+
+  for (const ev of historyEvents) {
+    const testResults = ev.details?.['testResults'] as Array<{
+      suiteName:       string;
+      runUrl?:         string;
+      allFlowDetails?: Array<{ name: string; status: string }>;
+    }> | undefined;
+
+    const environment = String(ev.details?.['environment'] ?? '');
+    if (!Array.isArray(testResults) || !environment) continue;
+
+    for (const r of testResults) {
+      for (const f of (r.allFlowDetails ?? [])) {
+        const k        = storeKey(r.suiteName, f.name, environment);
+        const existing = store.get(k);
+        if (existing && existing.timestamp >= ev.timestamp) continue;
+        store.set(k, {
+          suiteName:   r.suiteName,
+          flowName:    f.name,
+          environment,
+          timestamp:   ev.timestamp,
+          passed:      f.status === 'passed',
+          runUrl:      r.runUrl,
+        });
+        count++;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    saveToDisk();
+    console.log(`[flow-last-run] Back-filled ${count} record(s) from activity log`);
+  } else {
+    console.log(`[flow-last-run] Back-fill (activity log): no new data found`);
+  }
+}
+
 export function getAllRuns(): FlowRunRecord[] {
   return [...store.values()];
 }
