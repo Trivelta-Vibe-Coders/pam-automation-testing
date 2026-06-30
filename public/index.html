@@ -430,6 +430,11 @@
     .dash-manual-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-manual-key:hover { text-decoration:underline; }
     .dash-manual-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Env-restricted tickets (tests can only run in a higher environment) */
+    .dash-restricted-icon { font-size:12px; color:#f97316; }
+    .dash-restricted-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+    .dash-restricted-item { display:flex; align-items:baseline; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(249,115,22,.2); border-radius:6px; }
+    .dash-restricted-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:#f97316; background:rgba(249,115,22,.12); border:1px solid rgba(249,115,22,.3); border-radius:999px; padding:1px 6px; flex-shrink:0; white-space:nowrap; }
     .dash-refresh { display:flex; align-items:center; gap:10px; }
     .dash-refresh-btn { background:none; border:1px solid var(--border); border-radius:6px; color:var(--muted); font-size:11px; padding:5px 12px; cursor:pointer; transition:border-color .15s,color .15s; }
     .dash-refresh-btn:hover { border-color:var(--indigo); color:var(--indigo); }
@@ -2808,6 +2813,65 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       mList.appendChild(li);
     }
     section.appendChild(mList);
+    manualEl.appendChild(section);
+  }
+
+  // ── Env-restricted tickets (tests can only run in a higher environment) ──────
+  if (data.envRestrictedTickets && data.envRestrictedTickets.length) {
+    const hr3 = document.createElement('hr');
+    hr3.className = 'dash-divider';
+    manualEl.appendChild(hr3);
+
+    const section = document.createElement('div');
+    section.className = 'dash-manual';
+
+    const rHeader = document.createElement('div');
+    rHeader.className = 'dash-manual-header';
+
+    const icon = document.createElement('span');
+    icon.className = 'dash-restricted-icon';
+    icon.textContent = '⬆';
+    rHeader.appendChild(icon);
+
+    const label = document.createElement('span');
+    label.className = 'dash-manual-label';
+    label.textContent = data.envRestrictedTickets[0]?.jiraStatus?.toLowerCase().startsWith('dev')
+      ? 'Staging-Only Tests' : 'Higher-Env Tests';
+    rHeader.appendChild(label);
+
+    const cnt = document.createElement('span');
+    cnt.className = 'dash-manual-count';
+    cnt.textContent = String(data.envRestrictedTickets.length);
+    rHeader.appendChild(cnt);
+    section.appendChild(rHeader);
+
+    const rList = document.createElement('ul');
+    rList.className = 'dash-restricted-list';
+    for (const t of data.envRestrictedTickets) {
+      const li = document.createElement('li');
+      li.className = 'dash-restricted-item';
+
+      const keyLink = document.createElement('a');
+      keyLink.className = 'dash-manual-key';
+      keyLink.href = t.jiraUrl;
+      keyLink.target = '_blank';
+      keyLink.textContent = t.ticketKey;
+      li.appendChild(keyLink);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'dash-manual-title';
+      titleSpan.title = t.ticketTitle;
+      titleSpan.textContent = t.ticketTitle;
+      li.appendChild(titleSpan);
+
+      const badge = document.createElement('span');
+      badge.className = 'dash-restricted-badge';
+      badge.textContent = 'STG only';
+      li.appendChild(badge);
+
+      rList.appendChild(li);
+    }
+    section.appendChild(rList);
     manualEl.appendChild(section);
   }
 }

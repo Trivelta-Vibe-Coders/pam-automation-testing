@@ -345,7 +345,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
   interface BugLinkEntry { bugKey: string; jiraStatus: string; jiraUrl: string; }
   interface LinkedFlow   { flowId: string; flowName: string; }
   interface Blocker {
-    type:         'no_link' | 'test_failed' | 'never_tested';
+    type:         'no_link' | 'test_failed' | 'never_tested' | 'env_restricted';
     ticketKey:    string;
     ticketTitle:  string;
     jiraStatus:   string;
@@ -374,11 +374,15 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     tickets: ticketStore.TicketRecord[],
     env: string | null,
     card: 'stg' | 'prod',
-  ): { blockers: Blocker[]; dismissedBlockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[] } {
-    const blockers:          Blocker[]      = [];
-    const dismissedBlockers: Blocker[]      = [];
-    const passingTickets:    SimpleTicket[] = [];
-    const manualTestTickets: SimpleTicket[] = [];
+  ): { blockers: Blocker[]; dismissedBlockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[]; envRestrictedTickets: Blocker[] } {
+    const blockers:             Blocker[]      = [];
+    const dismissedBlockers:    Blocker[]      = [];
+    const passingTickets:       SimpleTicket[] = [];
+    const manualTestTickets:    SimpleTicket[] = [];
+    const envRestrictedTickets: Blocker[]      = [];
+
+    // The environment that must be checked for exclusions on this card
+    const cardEnv = card === 'stg' ? 'dev' : 'staging';
 
     // Keys of every ticket in this environment — used to suppress child bug cards
     // when the parent is already visible in the same column.
@@ -409,6 +413,14 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       const link        = flowLinks.getLink(ticket.key);
       const linkedFlows = link?.flows.map(f => ({ flowId: f.flowId, flowName: f.flowName })) ?? [];
       if (!result) {
+        // If every linked flow is excluded from this card's environment, the
+        // tests physically can't run here — show a distinct non-blocking marker.
+        const allExcluded = linkedFlows.length > 0 &&
+          linkedFlows.every(f => envRestrictions.isExcluded(f.flowId, cardEnv));
+        if (allExcluded) {
+          envRestrictedTickets.push({ type: 'env_restricted', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key), linkedFlows });
+          continue;
+        }
         blockers.push({ type: 'never_tested', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key), linkedFlows });
       } else if (!result.passed) {
         const blocker: Blocker = {
@@ -428,7 +440,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
         passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
       }
     }
-    return { blockers, dismissedBlockers, passingTickets, manualTestTickets };
+    return { blockers, dismissedBlockers, passingTickets, manualTestTickets, envRestrictedTickets };
   }
 
   const stagingData = buildCardData(devTickets, null,      'stg');
@@ -436,20 +448,22 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
 
   res.json({
     staging: {
-      ready:             stagingData.blockers.length === 0,
-      checkedTickets:    devTickets.length,
-      blockers:          stagingData.blockers,
-      dismissedBlockers: stagingData.dismissedBlockers,
-      passingTickets:    stagingData.passingTickets,
-      manualTestTickets: stagingData.manualTestTickets,
+      ready:                stagingData.blockers.length === 0,
+      checkedTickets:       devTickets.length,
+      blockers:             stagingData.blockers,
+      dismissedBlockers:    stagingData.dismissedBlockers,
+      passingTickets:       stagingData.passingTickets,
+      manualTestTickets:    stagingData.manualTestTickets,
+      envRestrictedTickets: stagingData.envRestrictedTickets,
     },
     production: {
-      ready:             prodData.blockers.length === 0,
-      checkedTickets:    stgTickets.length,
-      blockers:          prodData.blockers,
-      dismissedBlockers: prodData.dismissedBlockers,
-      passingTickets:    prodData.passingTickets,
-      manualTestTickets: prodData.manualTestTickets,
+      ready:                prodData.blockers.length === 0,
+      checkedTickets:       stgTickets.length,
+      blockers:             prodData.blockers,
+      dismissedBlockers:    prodData.dismissedBlockers,
+      passingTickets:       prodData.passingTickets,
+      manualTestTickets:    prodData.manualTestTickets,
+      envRestrictedTickets: prodData.envRestrictedTickets,
     },
   });
 });
