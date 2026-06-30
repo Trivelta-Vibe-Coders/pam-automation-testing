@@ -69,6 +69,7 @@ export async function triggerFlows(opts: TriggerOptions): Promise<TriggerResult>
   }
 
   // ── Case 2: suite-level triggers (nightly, full regression) ──────────────────
+  await suiteRegistry.ensureLoaded();
   const suiteIds = opts.suiteIds ?? suiteRegistry.getAllSuiteIds();
 
   if (excluded.size === 0) {

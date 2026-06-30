@@ -97,6 +97,9 @@ export function startPolling(params: {
 
       const groups = status.run_groups ?? [];
 
+      // Ensure the suite registry is populated before using it to filter groups
+      await suiteRegistry.ensureLoaded();
+
       // ── Build structured results (needed for both summary + dispatch) ─────────
       const allResults = groups
         .filter(g => suiteIdForName(g.name))

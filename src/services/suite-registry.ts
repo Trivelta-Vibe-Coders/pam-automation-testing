@@ -16,6 +16,11 @@ export async function refresh(): Promise<void> {
   idToName = new Map(suites.map(s => [s.id, s.name]));
 }
 
+/** Refresh only if the registry is empty (startup fetch failed). */
+export async function ensureLoaded(): Promise<void> {
+  if (nameToId.size === 0) await refresh();
+}
+
 export function getSuiteId(name: string): string | undefined {
   return nameToId.get(name);
 }
