@@ -25,7 +25,8 @@ import { getFlow } from './services/autosana';
 import * as envRestrictions from './services/env-restrictions';
 import { scheduleNightlyRun } from './services/nightly-trigger';
 import { backfillTicketMeta } from './services/meta-backfill';
-import * as dismissedBlockers_ from './services/dismissed-blockers';
+import * as dismissedBlockers_   from './services/dismissed-blockers';
+import * as manualTestOverrides  from './services/manual-test-overrides';
 import { startPolling } from './services/batch-poller';
 import * as bugLinksStore   from './services/bug-links';
 import * as flowLastRun    from './services/flow-last-run';
@@ -345,7 +346,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
   interface BugLinkEntry { bugKey: string; jiraStatus: string; jiraUrl: string; }
   interface LinkedFlow   { flowId: string; flowName: string; }
   interface Blocker {
-    type:         'no_link' | 'test_failed' | 'never_tested' | 'env_restricted';
+    type:         'no_link' | 'test_failed' | 'never_tested' | 'env_restricted' | 'manual_failing';
     ticketKey:    string;
     ticketTitle:  string;
     jiraStatus:   string;
@@ -365,9 +366,10 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     }));
   }
   interface SimpleTicket {
-    ticketKey:   string;
-    ticketTitle: string;
-    jiraUrl:     string;
+    ticketKey:       string;
+    ticketTitle:     string;
+    jiraUrl:         string;
+    manualConfirmed?: boolean;
   }
 
   function buildCardData(
@@ -399,7 +401,13 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       const status  = ticket.jiraStatus ?? '';
 
       if (ticket.noTestNeeded) {
-        manualTestTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
+        if (manualTestOverrides.isFailing(ticket.key, card)) {
+          blockers.push({ type: 'manual_failing', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key) });
+        } else if (manualTestOverrides.isConfirmed(ticket.key, card)) {
+          passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl, manualConfirmed: true });
+        } else {
+          manualTestTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
+        }
         continue;
       }
 
@@ -481,6 +489,35 @@ app.post('/api/dashboard/dismiss', (req: Request, res: Response) => {
   }
   dismissedBlockers_.setDismissed(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', dismissed);
   res.json({ ok: true, ticketKey, card, dismissed });
+});
+
+// ── API: manual test overrides ────────────────────────────────────────────────
+app.post('/api/dashboard/manual-confirm', (req: Request, res: Response) => {
+  const { ticketKey, card, confirmed } = req.body ?? {};
+  if (!ticketKey || !card || typeof confirmed !== 'boolean') {
+    res.status(400).json({ error: 'ticketKey, card (stg|prod), and confirmed (boolean) are required' });
+    return;
+  }
+  if (card !== 'stg' && card !== 'prod') {
+    res.status(400).json({ error: 'card must be "stg" or "prod"' });
+    return;
+  }
+  manualTestOverrides.setConfirmed(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', confirmed);
+  res.json({ ok: true });
+});
+
+app.post('/api/dashboard/manual-failing', (req: Request, res: Response) => {
+  const { ticketKey, card, failing } = req.body ?? {};
+  if (!ticketKey || !card || typeof failing !== 'boolean') {
+    res.status(400).json({ error: 'ticketKey, card (stg|prod), and failing (boolean) are required' });
+    return;
+  }
+  if (card !== 'stg' && card !== 'prod') {
+    res.status(400).json({ error: 'card must be "stg" or "prod"' });
+    return;
+  }
+  manualTestOverrides.setFailing(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', failing);
+  res.json({ ok: true });
 });
 
 // ── API: bug ticket links ─────────────────────────────────────────────────────

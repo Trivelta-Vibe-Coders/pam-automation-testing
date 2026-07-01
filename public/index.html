@@ -386,10 +386,14 @@
     .dash-passing-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); flex:1; }
     .dash-passing-count { background:rgba(34,197,94,.12); color:var(--green); border-radius:999px; padding:1px 7px; font-size:10px; font-weight:600; }
     .dash-passing-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-    .dash-passing-item { display:flex; align-items:baseline; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(34,197,94,.18); border-radius:6px; }
+    .dash-passing-item { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(34,197,94,.18); border-radius:6px; }
     .dash-passing-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-passing-key:hover { text-decoration:underline; }
     .dash-passing-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-passing-manual-badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--green); background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.25); border-radius:999px; padding:1px 6px; flex-shrink:0; }
+    .dash-passing-undo { background:none; border:none; color:var(--muted); font-size:10px; cursor:pointer; padding:0 2px; opacity:0; transition:opacity .15s,color .15s; flex-shrink:0; }
+    .dash-passing-item:hover .dash-passing-undo { opacity:1; }
+    .dash-passing-undo:hover { color:var(--yellow); }
     /* Blocker action buttons row (Re-run + Dismiss) */
     .dash-blocker-actions { display:flex; gap:6px; margin-top:6px; align-items:center; }
     .dash-blocker-rerun { background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); font-size:10px; font-weight:600; padding:3px 9px; cursor:pointer; transition:border-color .15s,color .15s; letter-spacing:.3px; }
@@ -426,10 +430,17 @@
     .dash-manual-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); flex:1; }
     .dash-manual-count { background:var(--border); color:var(--muted); border-radius:999px; padding:1px 7px; font-size:10px; }
     .dash-manual-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-    .dash-manual-item { display:flex; align-items:baseline; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(234,179,8,.18); border-radius:6px; }
+    .dash-manual-item { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg); border:1px solid rgba(234,179,8,.18); border-radius:6px; }
     .dash-manual-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
     .dash-manual-key:hover { text-decoration:underline; }
     .dash-manual-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-manual-actions { display:flex; gap:5px; flex-shrink:0; }
+    .dash-manual-confirm { background:none; border:1px solid rgba(34,197,94,.3); border-radius:5px; color:rgba(34,197,94,.7); font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; transition:border-color .15s,color .15s,background .15s; white-space:nowrap; }
+    .dash-manual-confirm:hover { border-color:var(--green); color:var(--green); background:rgba(34,197,94,.08); }
+    .dash-manual-confirm.active { border-color:var(--green); color:var(--green); background:rgba(34,197,94,.1); }
+    .dash-manual-fail { background:none; border:1px solid rgba(239,68,68,.25); border-radius:5px; color:rgba(239,68,68,.6); font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; transition:border-color .15s,color .15s,background .15s; white-space:nowrap; }
+    .dash-manual-fail:hover { border-color:var(--red); color:var(--red); background:rgba(239,68,68,.08); }
+    .dash-manual-fail.active { border-color:var(--red); color:var(--red); background:rgba(239,68,68,.1); }
     /* Env-restricted tickets (tests can only run in a higher environment) */
     .dash-restricted-icon { font-size:12px; color:#f97316; }
     .dash-restricted-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
@@ -2365,7 +2376,7 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
 
       // Re-run button — sits to the left of the reason badge (linked blockers only)
       let rerunBtn = null;
-      if (b.type !== 'no_link') {
+      if (b.type !== 'no_link' && b.type !== 'manual_failing') {
         rerunBtn = document.createElement('button');
         rerunBtn.className = 'dash-blocker-rerun';
         rerunBtn.textContent = '↺ Re-run';
@@ -2387,12 +2398,14 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
 
       const reasonEl = document.createElement('span');
       reasonEl.className = 'dash-blocker-reason ' + (
-        b.type === 'no_link'     ? 'no-link' :
-        b.type === 'test_failed' ? 'failed'  : 'not-run'
+        b.type === 'no_link'        ? 'no-link' :
+        b.type === 'test_failed'    ? 'failed'  :
+        b.type === 'manual_failing' ? 'failed'  : 'not-run'
       );
       reasonEl.textContent = (
-        b.type === 'no_link'     ? 'Unlinked' :
-        b.type === 'test_failed' ? 'Tests failing' : 'Not tested'
+        b.type === 'no_link'        ? 'Unlinked'     :
+        b.type === 'test_failed'    ? 'Tests failing' :
+        b.type === 'manual_failing' ? 'Manual fail'   : 'Not tested'
       );
       header.appendChild(reasonEl);
 
@@ -2617,6 +2630,44 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
         item.appendChild(dismissBtn);
       }
 
+      // manual_failing — two actions: mark as tested (→ passing) or clear (→ back to manual section)
+      if (b.type === 'manual_failing') {
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'dash-blocker-actions';
+
+        const testedBtn = document.createElement('button');
+        testedBtn.className = 'dash-blocker-dismiss';
+        testedBtn.textContent = '✓ Mark as tested';
+        testedBtn.addEventListener('click', async () => {
+          testedBtn.disabled = true;
+          testedBtn.textContent = 'Saving…';
+          await fetch('/api/dashboard/manual-confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, confirmed: true }),
+          });
+          loadDashboard();
+        });
+        actionsRow.appendChild(testedBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'dash-blocker-dismiss';
+        clearBtn.textContent = 'Clear failing';
+        clearBtn.addEventListener('click', async () => {
+          clearBtn.disabled = true;
+          clearBtn.textContent = 'Saving…';
+          await fetch('/api/dashboard/manual-failing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketKey: b.ticketKey, card: cardKey, failing: false }),
+          });
+          loadDashboard();
+        });
+        actionsRow.appendChild(clearBtn);
+
+        item.appendChild(actionsRow);
+      }
+
       list.appendChild(item);
     }
 
@@ -2756,6 +2807,28 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       titleSpan.textContent = t.ticketTitle;
       li.appendChild(titleSpan);
 
+      if (t.manualConfirmed) {
+        const badge = document.createElement('span');
+        badge.className = 'dash-passing-manual-badge';
+        badge.textContent = 'Manual ✓';
+        li.appendChild(badge);
+
+        const undoBtn = document.createElement('button');
+        undoBtn.className = 'dash-passing-undo';
+        undoBtn.textContent = '↩';
+        undoBtn.title = 'Undo — move back to manual testing';
+        undoBtn.addEventListener('click', async () => {
+          undoBtn.disabled = true;
+          await fetch('/api/dashboard/manual-confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticketKey: t.ticketKey, card: cardKey, confirmed: false }),
+          });
+          loadDashboard();
+        });
+        li.appendChild(undoBtn);
+      }
+
       pList.appendChild(li);
     }
     section.appendChild(pList);
@@ -2810,6 +2883,40 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       titleSpan.textContent = t.ticketTitle;
       li.appendChild(titleSpan);
 
+      const actions = document.createElement('div');
+      actions.className = 'dash-manual-actions';
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'dash-manual-confirm';
+      confirmBtn.textContent = '✓ Tested';
+      confirmBtn.title = 'Mark manual testing as done';
+      confirmBtn.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        await fetch('/api/dashboard/manual-confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketKey: t.ticketKey, card: cardKey, confirmed: true }),
+        });
+        loadDashboard();
+      });
+      actions.appendChild(confirmBtn);
+
+      const failBtn = document.createElement('button');
+      failBtn.className = 'dash-manual-fail';
+      failBtn.textContent = '✗ Failing';
+      failBtn.title = 'Mark manual testing as failing — moves to blockers';
+      failBtn.addEventListener('click', async () => {
+        failBtn.disabled = true;
+        await fetch('/api/dashboard/manual-failing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketKey: t.ticketKey, card: cardKey, failing: true }),
+        });
+        loadDashboard();
+      });
+      actions.appendChild(failBtn);
+
+      li.appendChild(actions);
       mList.appendChild(li);
     }
     section.appendChild(mList);
