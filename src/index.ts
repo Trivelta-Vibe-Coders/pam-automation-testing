@@ -376,12 +376,13 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
     tickets: ticketStore.TicketRecord[],
     env: string | null,
     card: 'stg' | 'prod',
-  ): { blockers: Blocker[]; dismissedBlockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[]; envRestrictedTickets: Blocker[] } {
-    const blockers:             Blocker[]      = [];
-    const dismissedBlockers:    Blocker[]      = [];
-    const passingTickets:       SimpleTicket[] = [];
-    const manualTestTickets:    SimpleTicket[] = [];
-    const envRestrictedTickets: Blocker[]      = [];
+  ): { blockers: Blocker[]; dismissedBlockers: Blocker[]; passingTickets: SimpleTicket[]; manualTestTickets: SimpleTicket[]; manualNotNeededTickets: SimpleTicket[]; envRestrictedTickets: Blocker[] } {
+    const blockers:               Blocker[]      = [];
+    const dismissedBlockers:      Blocker[]      = [];
+    const passingTickets:         SimpleTicket[] = [];
+    const manualTestTickets:      SimpleTicket[] = [];
+    const manualNotNeededTickets: SimpleTicket[] = [];
+    const envRestrictedTickets:   Blocker[]      = [];
 
     // The environment that must be checked for exclusions on this card
     const cardEnv = card === 'stg' ? 'dev' : 'staging';
@@ -405,6 +406,8 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
           blockers.push({ type: 'manual_failing', ticketKey: ticket.key, ticketTitle: title, jiraStatus: status, jiraUrl, bugLinks: resolveBugLinks(ticket.key) });
         } else if (manualTestOverrides.isConfirmed(ticket.key, card)) {
           passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl, manualConfirmed: true });
+        } else if (manualTestOverrides.isNotNeeded(ticket.key, card)) {
+          manualNotNeededTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
         } else {
           manualTestTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
         }
@@ -448,7 +451,7 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
         passingTickets.push({ ticketKey: ticket.key, ticketTitle: title, jiraUrl });
       }
     }
-    return { blockers, dismissedBlockers, passingTickets, manualTestTickets, envRestrictedTickets };
+    return { blockers, dismissedBlockers, passingTickets, manualTestTickets, manualNotNeededTickets, envRestrictedTickets };
   }
 
   const stagingData = buildCardData(devTickets, null,      'stg');
@@ -461,8 +464,9 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       blockers:             stagingData.blockers,
       dismissedBlockers:    stagingData.dismissedBlockers,
       passingTickets:       stagingData.passingTickets,
-      manualTestTickets:    stagingData.manualTestTickets,
-      envRestrictedTickets: stagingData.envRestrictedTickets,
+      manualTestTickets:        stagingData.manualTestTickets,
+      manualNotNeededTickets:   stagingData.manualNotNeededTickets,
+      envRestrictedTickets:     stagingData.envRestrictedTickets,
     },
     production: {
       ready:                prodData.blockers.length === 0,
@@ -470,8 +474,9 @@ app.get('/api/dashboard', (_req: Request, res: Response) => {
       blockers:             prodData.blockers,
       dismissedBlockers:    prodData.dismissedBlockers,
       passingTickets:       prodData.passingTickets,
-      manualTestTickets:    prodData.manualTestTickets,
-      envRestrictedTickets: prodData.envRestrictedTickets,
+      manualTestTickets:        prodData.manualTestTickets,
+      manualNotNeededTickets:   prodData.manualNotNeededTickets,
+      envRestrictedTickets:     prodData.envRestrictedTickets,
     },
   });
 });
@@ -503,6 +508,20 @@ app.post('/api/dashboard/manual-confirm', (req: Request, res: Response) => {
     return;
   }
   manualTestOverrides.setConfirmed(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', confirmed);
+  res.json({ ok: true });
+});
+
+app.post('/api/dashboard/manual-not-needed', (req: Request, res: Response) => {
+  const { ticketKey, card, notNeeded } = req.body ?? {};
+  if (!ticketKey || !card || typeof notNeeded !== 'boolean') {
+    res.status(400).json({ error: 'ticketKey, card (stg|prod), and notNeeded (boolean) are required' });
+    return;
+  }
+  if (card !== 'stg' && card !== 'prod') {
+    res.status(400).json({ error: 'card must be "stg" or "prod"' });
+    return;
+  }
+  manualTestOverrides.setNotNeeded(String(ticketKey).toUpperCase(), card as 'stg' | 'prod', notNeeded);
   res.json({ ok: true });
 });
 

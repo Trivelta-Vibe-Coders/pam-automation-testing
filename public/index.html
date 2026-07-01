@@ -441,6 +441,27 @@
     .dash-manual-fail { background:none; border:1px solid rgba(239,68,68,.25); border-radius:5px; color:rgba(239,68,68,.6); font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; transition:border-color .15s,color .15s,background .15s; white-space:nowrap; }
     .dash-manual-fail:hover { border-color:var(--red); color:var(--red); background:rgba(239,68,68,.08); }
     .dash-manual-fail.active { border-color:var(--red); color:var(--red); background:rgba(239,68,68,.1); }
+    .dash-manual-skip { background:none; border:1px solid rgba(100,116,139,.25); border-radius:5px; color:rgba(100,116,139,.6); font-size:10px; font-weight:600; padding:2px 8px; cursor:pointer; transition:border-color .15s,color .15s; white-space:nowrap; }
+    .dash-manual-skip:hover { border-color:var(--muted); color:var(--muted); }
+    /* Not needed section */
+    .dash-not-needed { }
+    .dash-not-needed-header { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+    .dash-not-needed-header:hover { opacity:.8; }
+    .dash-not-needed-icon { font-size:11px; color:var(--muted); }
+    .dash-not-needed-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); flex:1; }
+    .dash-not-needed-count { background:var(--border); color:var(--muted); border-radius:999px; padding:1px 7px; font-size:10px; }
+    .dash-not-needed-chevron { font-size:10px; color:var(--muted); transition:transform .15s; }
+    .dash-not-needed.collapsed .dash-not-needed-chevron { transform:rotate(-90deg); }
+    .dash-not-needed.collapsed .dash-not-needed-list { display:none; }
+    .dash-not-needed-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+    .dash-not-needed-item { display:flex; align-items:center; gap:8px; padding:5px 10px; background:var(--bg); border:1px solid rgba(100,116,139,.15); border-radius:6px; opacity:.65; }
+    .dash-not-needed-key { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--indigo); text-decoration:none; flex-shrink:0; }
+    .dash-not-needed-key:hover { text-decoration:underline; }
+    .dash-not-needed-title { font-size:12px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dash-not-needed-undo { background:none; border:none; color:var(--muted); font-size:10px; cursor:pointer; padding:0 2px; opacity:0; transition:opacity .15s,color .15s; flex-shrink:0; }
+    .dash-not-needed-item:hover .dash-not-needed-undo { opacity:1; }
+    .dash-not-needed-item:hover { opacity:1; }
+    .dash-not-needed-undo:hover { color:var(--yellow); }
     /* Env-restricted tickets (tests can only run in a higher environment) */
     .dash-restricted-icon { font-size:12px; color:#f97316; }
     .dash-restricted-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
@@ -2916,10 +2937,102 @@ function renderDashCard({ cardId, badgeId, subId, checkedId, blockersId, dismiss
       });
       actions.appendChild(failBtn);
 
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'dash-manual-skip';
+      skipBtn.textContent = '— Not needed';
+      skipBtn.title = 'No testing required for this ticket';
+      skipBtn.addEventListener('click', async () => {
+        skipBtn.disabled = true;
+        await fetch('/api/dashboard/manual-not-needed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketKey: t.ticketKey, card: cardKey, notNeeded: true }),
+        });
+        loadDashboard();
+      });
+      actions.appendChild(skipBtn);
+
       li.appendChild(actions);
       mList.appendChild(li);
     }
     section.appendChild(mList);
+    manualEl.appendChild(section);
+  }
+
+  // ── Not needed section (collapsed) ─────────────────────────────────────────
+  if (data.manualNotNeededTickets && data.manualNotNeededTickets.length) {
+    const hr = document.createElement('hr');
+    hr.className = 'dash-divider';
+    manualEl.appendChild(hr);
+
+    const section = document.createElement('div');
+    section.className = 'dash-not-needed collapsed';
+
+    const nnHeader = document.createElement('div');
+    nnHeader.className = 'dash-not-needed-header';
+    nnHeader.addEventListener('click', () => section.classList.toggle('collapsed'));
+
+    const nnIcon = document.createElement('span');
+    nnIcon.className = 'dash-not-needed-icon';
+    nnIcon.textContent = '—';
+    nnHeader.appendChild(nnIcon);
+
+    const nnLabel = document.createElement('span');
+    nnLabel.className = 'dash-not-needed-label';
+    nnLabel.textContent = 'Not needed';
+    nnHeader.appendChild(nnLabel);
+
+    const nnCnt = document.createElement('span');
+    nnCnt.className = 'dash-not-needed-count';
+    nnCnt.textContent = String(data.manualNotNeededTickets.length);
+    nnHeader.appendChild(nnCnt);
+
+    const nnChevron = document.createElement('span');
+    nnChevron.className = 'dash-not-needed-chevron';
+    nnChevron.textContent = '▾';
+    nnHeader.appendChild(nnChevron);
+
+    section.appendChild(nnHeader);
+
+    const nnList = document.createElement('ul');
+    nnList.className = 'dash-not-needed-list';
+
+    for (const t of data.manualNotNeededTickets) {
+      const li = document.createElement('li');
+      li.className = 'dash-not-needed-item';
+
+      const keyLink = document.createElement('a');
+      keyLink.className = 'dash-not-needed-key';
+      keyLink.href = t.jiraUrl;
+      keyLink.target = '_blank';
+      keyLink.textContent = t.ticketKey;
+      li.appendChild(keyLink);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'dash-not-needed-title';
+      titleSpan.title = t.ticketTitle;
+      titleSpan.textContent = t.ticketTitle;
+      li.appendChild(titleSpan);
+
+      const undoBtn = document.createElement('button');
+      undoBtn.className = 'dash-not-needed-undo';
+      undoBtn.textContent = '↩';
+      undoBtn.title = 'Undo — move back to manual testing';
+      undoBtn.addEventListener('click', async () => {
+        undoBtn.disabled = true;
+        await fetch('/api/dashboard/manual-not-needed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticketKey: t.ticketKey, card: cardKey, notNeeded: false }),
+        });
+        loadDashboard();
+      });
+      li.appendChild(undoBtn);
+
+      nnList.appendChild(li);
+    }
+
+    section.appendChild(nnList);
     manualEl.appendChild(section);
   }
 
